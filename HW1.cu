@@ -32,7 +32,7 @@ void allocateMemory()
 	A_CPU = (float*)malloc(N*sizeof(float));
 	B_CPU = (float*)malloc(N*sizeof(float));
 	C_CPU = (float*)malloc(N*sizeof(float));
-}
+} //allacotase N number of 32 bit floats (allocate N floats)
 
 //Loading values into the vectors that we will add.
 void innitialize()
@@ -42,7 +42,7 @@ void innitialize()
 		A_CPU[i] = (float)i;	
 		B_CPU[i] = (float)(2*i);
 	}
-}
+}//goes through the array and sets vals for each element
 
 //Adding vectors a and b then stores result in vector c.
 void addVectorsCPU(float *a, float *b, float *c, int n)
@@ -51,7 +51,7 @@ void addVectorsCPU(float *a, float *b, float *c, int n)
 	{ 
 		c[id] = a[id] + b[id];
 	}
-}
+} // adds the two arrays and stores them in C
 
 // Checking to see if anything went wrong in the vector addition.
 int check(float *c, int n)
@@ -62,16 +62,16 @@ int check(float *c, int n)
 	
 	for(id = 0; id < n; id++)
 	{ 
-		sum += c[id];
+		sum += c[id]; //sum up all elements in C
 	}
 	
-	if(abs(sum - 3.0*(m*(m+1))/2.0) < Tolerance) 
+	if(abs(sum - 3.0*(m*(m+1))/2.0) < Tolerance) //No clue what this calculation is exactly but it checks to make sure it within a tolarnce bc floats are weird
 	{
-		return(1);
+		return(1); //good
 	}
 	else 
 	{
-		return(0);
+		return(0); //bad
 	}
 }
 
@@ -86,7 +86,7 @@ long elaspedTime(struct timeval start, struct timeval end)
 
 	// Returning the total time elasped in microseconds
 	return endTime - startTime;
-}
+}//when did I start - when did I end = time elapsed
 
 //Cleaning up memory after we are finished.
 void CleanUp()
@@ -95,7 +95,7 @@ void CleanUp()
 	free(A_CPU); 
 	free(B_CPU); 
 	free(C_CPU);
-}
+}// EZ
 
 int main()
 {
@@ -134,5 +134,5 @@ int main()
 	printf("\n");
 	
 	return(0);
-}
+}//Calls functions and prints information based on what happened
 
