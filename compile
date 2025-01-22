@@ -1,0 +1,5 @@
+#Compiles and runs the current file
+
+#chmod 755 compile
+
+nvcc HW2.cu -o temp

@@ -1,14 +1,16 @@
-// Name:
+// Name: Mason Bane
+
 // nvcc HW2.cu -o temp
+
 /*
  What to do:
  This code adds the vectors on the GPU.
  Man, that was easy!
 
  1. First, just add cuda to the word malloc to get cudaMalloc and use it to allocate memory on the GPU.
- Okay, you had to use an & instead of float*, but come on, that was no big deal.
+ Okay, you had to use an & instead of float*, but come on, that was no big deal. :)
 
- 2. Use cudaMemcpyAsync to copy your CPU memory holding your vectors to the GPU.
+ 2. Use cudaMemcpyAsync to copy your CPU memory holding your vectors to the GPU. :)
 
  3. Now for the important stuff we've all been waiting for: the GPU "CUDA kernel" that does 
  the work on thousands of CUDA cores all at the same time!!!!!!!! 
@@ -60,7 +62,7 @@
 #include <stdio.h>
 
 // Defines
-#define N 500 // Length of the vector
+#define N 1500 // Length of the vector
 
 // Global variables
 float *A_CPU, *B_CPU, *C_CPU; //CPU pointers
@@ -82,13 +84,36 @@ void cleanUp();
 // This will be the layout of the parallel space we will be using.
 void setUpDevices()
 {
-	BlockSize.x = N;
+	//max # of threads in a block = 1024, so if N is bigger we need to use more than one block.
+	// if(N >= 1024) //
+	// {
+	// 	BlockSize.x = 1024; //now the question becomes is there something wrong with a bunch of empty threads?
+	// 	BlockSize.y = 1;
+	// 	BlockSize.z = 1;
+		
+	// 	GridSize.x = (int)N/1024 + 1; //N/1024 = # of blocks needed, since its int division add 1 to round up
+	// 	GridSize.y = 1;
+	// 	GridSize.z = 1;
+	// }
+	// else // otherwise we just use one block with n threads.
+	// {
+	// 	BlockSize.x = N;
+	// 	BlockSize.y = 1;
+	// 	BlockSize.z = 1;
+		
+	// 	GridSize.x = 1;
+	// 	GridSize.y = 1;
+	// 	GridSize.z = 1;
+	// }
+
+	BlockSize.x = 1024; //max size 1024 still needed
 	BlockSize.y = 1;
 	BlockSize.z = 1;
 	
 	GridSize.x = 1;
 	GridSize.y = 1;
 	GridSize.z = 1;
+
 }
 
 // Allocating the memory we will be using.
@@ -129,9 +154,20 @@ void addVectorsCPU(float *a, float *b, float *c, int n)
 // It adds vectors a and b on the GPU then stores result in vector c.
 __global__ void addVectorsGPU(float *a, float *b, float *c, int n)
 {
-	int id = threadIdx.x;
-	
-	c[id] = a[id] + b[id];
+	int id = threadIdx.x; //+ blockIdx.x*blockDim.x;
+
+	if (n > 1024)
+	{
+		for (int i = id; i < n; i += blockDim.x) //for this we're doing 2 calculations per thread until we dont have to anymore
+		{
+			c[i] = a[i] + b[i];
+		}
+	}
+	else
+	{
+		c[id] = a[id] + b[id];
+	}
+
 }
 
 // Checking to see if anything went wrong in the vector addition.
@@ -211,16 +247,16 @@ int main()
 	gettimeofday(&start, NULL);
 	
 	// Copy Memory from CPU to GPU		
-	cudaMemcpyAsync(A_GPU, A_CPU, N*sizeof(float), cudaMemcpyHostToDevice);
+	cudaMemcpyAsync(A_GPU, A_CPU, N*sizeof(float), cudaMemcpyHostToDevice); //args are (destination, source, size, direction)
 	cudaMemcpyAsync(B_GPU, B_CPU, N*sizeof(float), cudaMemcpyHostToDevice);
 	
 	addVectorsGPU<<<GridSize,BlockSize>>>(A_GPU, B_GPU ,C_GPU, N);
 	
+	// Making sure the GPU and CPU wait until each other are at the same place.
+	cudaDeviceSynchronize();
+
 	// Copy Memory from GPU to CPU	
 	cudaMemcpyAsync(C_CPU, C_GPU, N*sizeof(float), cudaMemcpyDeviceToHost);
-	
-	// Making sure the GPU and CPU wiat until each other are at the same place.
-	cudaDeviceSynchronize(void);
 	
 	gettimeofday(&end, NULL);
 	timeGPU = elaspedTime(start, end);

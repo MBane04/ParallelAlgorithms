@@ -1,0 +1,7 @@
+#Compiles and runs the current file
+
+#chmod 755 compilerun
+
+nvcc HW2.cu -o temp
+
+./temp
