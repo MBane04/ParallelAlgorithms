@@ -106,13 +106,26 @@ void setUpDevices()
 	// 	GridSize.z = 1;
 	// }
 
-	BlockSize.x = 1024; //max size 1024 still needed
-	BlockSize.y = 1;
-	BlockSize.z = 1;
-	
-	GridSize.x = 1;
-	GridSize.y = 1;
-	GridSize.z = 1;
+	if(N >= 1024)
+	{
+		BlockSize.x = 1024; //max size 1024 still needed
+		BlockSize.y = 1;
+		BlockSize.z = 1;
+		
+		GridSize.x = 1;
+		GridSize.y = 1;
+		GridSize.z = 1;
+	}
+	else //N threads, EZ
+	{
+		BlockSize.x = N;
+		BlockSize.y = 1;
+		BlockSize.z = 1;
+		
+		GridSize.x = 1;
+		GridSize.y = 1;
+		GridSize.z = 1;
+	}
 
 }
 
@@ -156,14 +169,14 @@ __global__ void addVectorsGPU(float *a, float *b, float *c, int n)
 {
 	int id = threadIdx.x; //+ blockIdx.x*blockDim.x;
 
-	if (n > 1024)
+	if (n > 1024) //if there are more than 1024 things to do, do it in a weird way
 	{
 		for (int i = id; i < n; i += blockDim.x) //for this we're doing 2 calculations per thread until we dont have to anymore
 		{
 			c[i] = a[i] + b[i];
 		}
 	}
-	else
+	else //business as usual
 	{
 		c[id] = a[id] + b[id];
 	}
@@ -181,6 +194,7 @@ int check(float *c, int n)
 		sum += c[id];
 	}
 	
+	printf("\n The sum of the elements in vector C is %f", sum);
 	if(abs(sum - 3.0*(m*(m+1))/2.0) < Tolerance) 
 	{
 		return(1);
@@ -236,6 +250,8 @@ int main()
 	addVectorsCPU(A_CPU, B_CPU ,C_CPU, N);
 	gettimeofday(&end, NULL);
 	timeCPU = elaspedTime(start, end);
+
+	check(C_CPU, N);
 	
 	// Zeroing out the C_CPU vector just to be safe because right now it has the correct answer in it.
 	for(int id = 0; id < N; id++)
