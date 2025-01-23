@@ -44,7 +44,7 @@ void setUpDevices()
 	BlockSize.y = 1;
 	BlockSize.z = 1;
 	
-	GridSize.x = (int)N/BlockSize.x + 1; //    N/BlockSize.x = # of blocks needed, since its int division add 1 to round up
+	GridSize.x = (int)(N+1)/BlockSize.x + 1; //    N/BlockSize.x = # of blocks needed, since its int division add 1 to round up
 	GridSize.y = 1;
 	GridSize.z = 1;
 }
