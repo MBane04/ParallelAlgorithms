@@ -1,4 +1,4 @@
-// Name:
+// Name: Mason Bane
 // nvcc HW3.cu -o temp
 /*
  What to do:
@@ -40,11 +40,11 @@ void cleanUp();
 // This will be the layout of the parallel space we will be using.
 void setUpDevices()
 {
-	BlockSize.x = 100;
+	BlockSize.x = 256;
 	BlockSize.y = 1;
 	BlockSize.z = 1;
 	
-	GridSize.x = 1;
+	GridSize.x = (int)N/BlockSize.x + 1; //    N/BlockSize.x = # of blocks needed, since its int division add 1 to round up
 	GridSize.y = 1;
 	GridSize.z = 1;
 }

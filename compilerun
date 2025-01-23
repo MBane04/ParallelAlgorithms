@@ -2,6 +2,6 @@
 
 #chmod 755 compilerun
 
-nvcc HW2.cu -o temp
+nvcc HW3.cu -o temp
 
 ./temp
