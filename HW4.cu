@@ -1,4 +1,4 @@
-// Name:
+// Name: Mason Bane
 // nvcc HW4.cu -o temp
 /*
  What to do:
@@ -15,7 +15,7 @@
  Extend this code so that, given a block size and a grid size, it can handle any vector addition. 
  Start by hard-coding the block size to 256 and the grid size to 64. Then, experiment with different 
  block and grid sizes to see if you can achieve any speedup. Set the vector size to a very large value 
- for time testing.
+ for time testing.  <<(DONE)>>
 
  You’ve probably already noticed that the GPU doesn’t significantly outperform the CPU. This is because 
  we’re not asking the GPU to do much work, and the overhead of setting up the GPU eliminates much of the 
@@ -38,7 +38,7 @@
 #include <stdio.h>
 
 // Defines
-#define N 11503 // Length of the vector
+#define N 1150000// Length of the vector
 
 // Global variables
 float *A_CPU, *B_CPU, *C_CPU; //CPU pointers
@@ -60,11 +60,11 @@ void cleanUp();
 // This will be the layout of the parallel space we will be using.
 void setUpDevices()
 {
-	BlockSize.x = 100;
+	BlockSize.x = 256;
 	BlockSize.y = 1;
 	BlockSize.z = 1;
 	
-	GridSize.x = (N - 1)/BlockSize.x + 1; // This gives us the correct number of blocks.
+	GridSize.x = 64; // This gives us the correct number of blocks.
 	GridSize.y = 1;
 	GridSize.z = 1;
 }
@@ -99,7 +99,8 @@ void addVectorsCPU(float *a, float *b, float *c, int n)
 {
 	for(int id = 0; id < n; id++)
 	{ 
-		c[id] = a[id] + b[id];
+		//c[id] = a[id] + b[id];
+		c[id] = sqrt(cos(a[id])*cos(a[id]) + sin(a[id])*sin(a[id]) - 1.0 + a[id]*a[id]) + sqrt(cos(b[id])*cos(b[id]) + sin(b[id])*sin(b[id]) - 1.0 + b[id]*b[id]);
 	}
 }
 
@@ -109,9 +110,10 @@ __global__ void addVectorsGPU(float *a, float *b, float *c, int n)
 {
 	int id = blockIdx.x*blockDim.x + threadIdx.x;
 	
-	if(id < N) // Making sure we are not working on memory we do not own.
-	{
-		c[id] = a[id] + b[id];
+	for(int id = 0; id < n; id++)
+	{ 
+		//c[id] = a[id] + b[id];
+		c[id] = sqrt(cos(a[id])*cos(a[id]) + sin(a[id])*sin(a[id]) - 1.0 + a[id]*a[id]) + sqrt(cos(b[id])*cos(b[id]) + sin(b[id])*sin(b[id]) - 1.0 + b[id]*b[id]);
 	}
 }
 
@@ -126,6 +128,7 @@ int check(float *c, int n)
 		sum += c[id];
 	}
 	
+	printf("\n The sum of the elements in vector C is %f", sum);
 	if(abs(sum - 3.0*(m*(m+1))/2.0) < Tolerance) 
 	{
 		return(1);
@@ -181,6 +184,8 @@ int main()
 	addVectorsCPU(A_CPU, B_CPU ,C_CPU, N);
 	gettimeofday(&end, NULL);
 	timeCPU = elaspedTime(start, end);
+
+	check(C_CPU, N);
 	
 	// Zeroing out the C_CPU vector just to be safe because right now it has the correct answer in it.
 	for(int id = 0; id < N; id++)
@@ -190,7 +195,7 @@ int main()
 	
 	// Adding on the GPU
 	gettimeofday(&start, NULL);
-	
+
 	// Copy Memory from CPU to GPU		
 	cudaMemcpyAsync(A_GPU, A_CPU, N*sizeof(float), cudaMemcpyHostToDevice);
 	cudaMemcpyAsync(B_GPU, B_CPU, N*sizeof(float), cudaMemcpyHostToDevice);
@@ -201,7 +206,8 @@ int main()
 	cudaMemcpyAsync(C_CPU, C_GPU, N*sizeof(float), cudaMemcpyDeviceToHost);
 	
 	// Making sure the GPU and CPU wiat until each other are at the same place.
-	cudaDeviceSynchronize(void);
+	cudaDeviceSynchronize();
+	
 	
 	gettimeofday(&end, NULL);
 	timeGPU = elaspedTime(start, end);
