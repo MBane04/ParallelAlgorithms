@@ -109,12 +109,17 @@ void addVectorsCPU(float *a, float *b, float *c, int n)
 __global__ void addVectorsGPU(float *a, float *b, float *c, int n)
 {
 	int id = blockIdx.x*blockDim.x + threadIdx.x;
-	
-	for(int id = 0; id < n; id++)
-	{ 
-		//c[id] = a[id] + b[id];
-		c[id] = sqrt(cos(a[id])*cos(a[id]) + sin(a[id])*sin(a[id]) - 1.0 + a[id]*a[id]) + sqrt(cos(b[id])*cos(b[id]) + sin(b[id])*sin(b[id]) - 1.0 + b[id]*b[id]);
+
+	if(id < n)
+	{
+		#pragma unroll
+		for(int i = id; i < n; i += blockDim.x * gridDim.x)
+		{ 
+			//c[id] = a[id] + b[id];
+			c[i] = sqrt(cos(a[i])*cos(a[i]) + sin(a[i])*sin(a[i]) - 1.0 + a[i]*a[i]) + sqrt(cos(b[i])*cos(b[i]) + sin(b[i])*sin(b[i]) - 1.0 + b[i]*b[i]);
+		}
 	}
+
 }
 
 // Checking to see if anything went wrong in the vector addition.
