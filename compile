@@ -2,4 +2,4 @@
 
 #chmod 755 compile
 
-nvcc HW5.cu -o temp
+nvcc HW6.cu -o temp -lglut -lGL -lm
