@@ -35,10 +35,12 @@ float YMax =  2.0;
 
 // Function prototypes
 void cudaErrorCheck(const char*, int);
-float escapeOrNotColor(float, float);
+__global__ void escapeOrNotColorGPU(float4 *pixels, int N, int xMax, int xMin, int yMax, int yMin, int windowWidth, int windowHeight);
 void setUpDevices();
 void allocateMemory();
 void initialize();
+void display(void);
+void cleanUp();
 
 // This will be the layout of the parallel space we will be using.
 
@@ -93,34 +95,6 @@ void initialize()
 	}
 }
 
-// float escapeOrNotColorCPU (float x, float y) 
-// {
-// 	float mag,tempX;
-// 	int count;
-	
-// 	int maxCount = MAXITERATIONS;
-// 	float maxMag = MAXMAG;
-	
-// 	count = 0;
-// 	mag = sqrt(x*x + y*y);;
-// 	while (mag < maxMag && count < maxCount) 
-// 	{	
-// 		tempX = x; //We will be changing the x but we need its old value to find y.
-// 		x = x*x - y*y + A;
-// 		y = (2.0 * tempX * y) + B;
-// 		mag = sqrt(x*x + y*y);
-// 		count++;
-// 	}
-// 	if(count < maxCount) 
-// 	{
-// 		return(0.0);
-// 	}
-// 	else
-// 	{
-// 		return(1.0);
-// 	}
-// }
-
 __global__ void escapeOrNotColorGPU(float4 *pixels, int N, int xMax, int xMin, int yMax, int yMin, int windowWidth, int windowHeight)
 {
 	//declare variables
@@ -139,7 +113,7 @@ __global__ void escapeOrNotColorGPU(float4 *pixels, int N, int xMax, int xMin, i
 
 
 	//calculate the x and y values for this pixel
-	x = xMin + (stepSizeX * column); //min column in coords + how far over you are in the row
+	x = xMin + (stepSizeX * column); //min column in coords + how far over you are in the row (stepsize in coords * thread #)
 	y = yMin + (stepSizeY * row); //min row in coords + how far down you are in the row
 
 	//make sure that we don't go out of bounds
@@ -177,37 +151,6 @@ __global__ void escapeOrNotColorGPU(float4 *pixels, int N, int xMax, int xMin, i
 
 void display(void) 
 { 
-	// float *pixels; 
-	// float x, y, stepSizeX, stepSizeY;
-	// int k;
-	
-	// //We need the 3 because each pixel has a red, green, and blue value.
-	// pixels = (float *)malloc(WindowWidth*WindowHeight*3*sizeof(float));
-	
-	// stepSizeX = (XMax - XMin)/((float)WindowWidth);
-	// stepSizeY = (YMax - YMin)/((float)WindowHeight);
-	
-	// k=0;
-	// y = YMin;
-	// while(y < YMax) 
-	// {
-	// 	x = XMin;
-	// 	while(x < XMax) 
-	// 	{
-	// 		pixels[k] = escapeOrNotColor(x,y);	//Red on or off returned from color
-	// 		pixels[k+1] = 0.0; 	//Green off
-	// 		pixels[k+2] = 0.0;	//Blue off
-	// 		k=k+3;			//Skip to next pixel (3 float jump)
-	// 		x += stepSizeX;
-	// 	}
-
-	// 	y += stepSizeY;
-	// }
-
-	//Putting pixels on the screen.
-	// glDrawPixels(WindowWidth, WindowHeight, GL_RGB, GL_FLOAT, pixels); 
-	// glFlush(); 
-
 	//call the kernel
 	escapeOrNotColorGPU<<<GridSize, BlockSize>>>(Pixels_GPU, N, XMax, XMin, YMax, YMin, WindowWidth, WindowHeight);
 	cudaErrorCheck(__FILE__, __LINE__);
@@ -238,7 +181,7 @@ int main(int argc, char** argv)
 	glutCreateWindow("Fractals--Man--Fractals");
    	glutDisplayFunc(display);
 
-	//when we exit the glutMainLoop, we want to free the memory.
+	//when we exit the glutMainLoop, we want to free the memory using the cleaUp function.
 	atexit(cleanUp);
 
 	//set up the devices
@@ -252,18 +195,10 @@ int main(int argc, char** argv)
 
 	//Transfer the memory to the GPU
 	cudaMemcpy(Pixels_GPU, Pixels_CPU, N*sizeof(float4), cudaMemcpyHostToDevice);
-
+	cudaErrorCheck(__FILE__, __LINE__);
+	
+	//start the glut loop
    	glutMainLoop();
 	
 }
-
-//process
-
-//Each thread will be a pixel and needs 3 float values for RGB, so an array of float4s of size N is needed
-//initalize the array with all black pixels (0,0,0,1)
-//transfer the memory to the GPU
-//manipulate the pixels in parallel
-//transfer the memory back to the CPU
-//display the pixels
-//FREE MEM
 
