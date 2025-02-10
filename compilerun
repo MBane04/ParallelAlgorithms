@@ -2,6 +2,9 @@
 
 #chmod 755 compilerun
 
-nvcc HW6.cu -o temp -lglut -lGL -lm
+#for windows use this too
+dos2unix compile HW7.cu
+
+nvcc HW7.cu -o temp -lglut -lGL -lm
 
 ./temp
