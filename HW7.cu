@@ -23,8 +23,8 @@
 #define B  -0.1711	//Imaginary part of C
 
 // Global variables
-unsigned int WindowWidth = 1024; //attempted 2048, 2500
-unsigned int WindowHeight = 1024; //attempted 2048
+unsigned int WindowWidth = 5000; //attempted 200, 2048, 2500, 5000
+unsigned int WindowHeight = 1000; //attempted 100, 2048
 
 float XMin = -2.0;
 float XMax =  2.0;
@@ -248,7 +248,7 @@ void display(void)
 	//  	printf("Good Bye and have a nice day!\n");
 	//  	exit(0);
 	// }
-	blockSize.x = 1024; //WindowWidth;
+	WindowWidth > 1024 ? blockSize.x = 1024 : blockSize.x = WindowWidth;
 	blockSize.y = 1;
 	blockSize.z = 1;
 	
@@ -267,7 +267,11 @@ void display(void)
 	//Putting pixels on the screen.
 	glDrawPixels(WindowWidth, WindowHeight, GL_RGB, GL_FLOAT, pixelsCPU); 
 	glFlush(); 
+
+	free(pixelsCPU);
+	cudaFree(pixelsGPU);
 }
+
 
 int main(int argc, char** argv)
 { 
@@ -276,6 +280,7 @@ int main(int argc, char** argv)
    	glutInitWindowSize(WindowWidth, WindowHeight);
 	glutCreateWindow("Fractals--Man--Fractals");
    	glutDisplayFunc(display);
+
    	glutMainLoop();
 }
 

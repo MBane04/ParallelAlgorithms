@@ -3,6 +3,6 @@
 #chmod 755 compile
 
 #for windows use this too
-dos2unix compile HW7.cu
+#dos2unix compile HW7.cu
 
 nvcc HW7.cu -o temp -lglut -lGL

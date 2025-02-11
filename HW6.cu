@@ -113,7 +113,7 @@ __global__ void escapeOrNotColorGPU(float4 *pixels, int N, int xMax, int xMin, i
 
 
 	//calculate the x and y values for this pixel
-	x = xMin + (stepSizeX * column); //min column in coords + how far over you are in the row (stepsize in coords * thread #)
+	x = xMin + (stepSizeX * column); //min column in coords + how far over you are in the row (stepsize in coords * thread # of steps)
 	y = yMin + (stepSizeY * row); //min row in coords + how far down you are in the row
 
 	//make sure that we don't go out of bounds
