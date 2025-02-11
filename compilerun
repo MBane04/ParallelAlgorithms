@@ -3,7 +3,8 @@
 #chmod 755 compilerun
 
 #for windows use this too
-dos2unix compile HW7.cu
+dos2unix compilerun
+dos2unix HW7.cu
 
 nvcc HW7.cu -o temp -lglut -lGL -lm
 

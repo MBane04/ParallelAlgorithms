@@ -14,6 +14,7 @@
 // Include files
 #include <stdio.h>
 #include <GL/glut.h>
+#include <curand_kernel.h>
 
 // Defines
 #define MAXMAG 10.0 // If you grow larger than this, we assume that you have escaped.
@@ -22,8 +23,8 @@
 #define B  -0.1711	//Imaginary part of C
 
 // Global variables
-unsigned int WindowWidth = 1024;
-unsigned int WindowHeight = 1024;
+unsigned int WindowWidth = 1024; //attempted 2048, 2500
+unsigned int WindowHeight = 1024; //attempted 2048
 
 float XMin = -2.0;
 float XMax =  2.0;
@@ -46,54 +47,182 @@ void cudaErrorCheck(const char *file, int line)
 	}
 }
 
-__global__ void colorPixels(float *pixels, float xMin, float yMin, float dx, float dy, int windowWidth) 
+__global__ void colorPixels(float *pixels, float xMin, float yMin, float dx, float dy, int windowWidth, int windowHeight) 
 {
-	float x,y,mag,tempX;
-	int count, id;
-	
-	int maxCount = MAXITERATIONS;
-	float maxMag = MAXMAG;
-	
-	
-	//Getting the offset into the pixel buffer. 
-	//We need the 3 because each pixel has a red, green, and blue value.
-	id = 3*(threadIdx.x + blockDim.x*blockIdx.x);
-	
-	//Asigning each thread its x and y value of its pixel.
-	x = xMin + dx*threadIdx.x;
-	y = yMin + dy*blockIdx.x;
-	for(int i = 0; i < windowWidth; i += blockDim.x)
-	{
+    float x, y, mag, tempX;
+    int count, id;
+    
+    int maxCount = MAXITERATIONS;
+    float maxMag = MAXMAG;
+
+
+	#pragma unroll //idk if this will make it faster, but might as well try it.
+	for (int i = threadIdx.x; i < windowWidth; i += blockDim.x)//<= so we dont do something twice
+	{		
+		// Calculate the offset into the pixel buffer, needs to be inside the loop
+		id = 3 * (blockIdx.x * windowWidth + i); //3 * (what row we are on * size of row + offset in row)
+		//just to test above line,  b = 0 threadIdx = 2
+		//b=0: tidx = 0 3*(0*2048) + 0, 3*(1024), 3*(2048)[break before doing],3*(1), 3*(1025), 3*(2049)[break before doing]...
+		//b=1: 3*(2048), 3*(3072), 3*(4096)
+		//b=2: 3*(2*2048 + 0) = 3*(4096)
+		
+		//calculate offset, sime formula as last time, now with a 1024 pixel jump if needed
+		x = xMin + dx * i;
+		y = yMin + dy * blockIdx.x;
+		
 		count = 0;
-		mag = sqrt(x*x + y*y);;
+		mag = sqrt(x * x + y * y);
 		while (mag < maxMag && count < maxCount) 
 		{
-			//We will be changing the x but we need its old value to find y.	
+			// We will be changing the x but we need its old value to find y.    
 			tempX = x; 
-			x = x*x - y*y + A;
+			x = x * x - y * y + A;
 			y = (2.0 * tempX * y) + B;
-			mag = sqrt(x*x + y*y);
+			mag = sqrt(x * x + y * y);
 			count++;
 		}
 		
-		//Setting the red value
-		if(count < maxCount) //It excaped
+		float brightness = 12.5;
+		//random number between 0 and 1
+		curandState state;
+		curand_init(0, id, 0, &state);
+		float random = curand_uniform(&state);
+		if(count < maxCount) //It escaped
 		{
-			pixels[i]     = 0.0;
-			pixels[i + 1] = 0.0;
-			pixels[i + 2] = 0.0;
+			if(count <=2)
+			{	if (threadIdx.x % 2 == 0)
+				{
+					pixels[id]     = 1.0;
+					pixels[id + 1] = 0.0;
+					pixels[id + 2] = 0.0;
+				}
+				else if (threadIdx.x % 2 == 1)
+				{
+					pixels[id]     = 0.0;
+					pixels[id + 1] = 1.0;
+					pixels[id + 2] = 0.0;
+				}
+				if(threadIdx.x % 2 == 0 && blockIdx.x % 2 == 0)
+				{
+					pixels[id]     = min(max(random + 0.5, (float)(count + random*255)/(float)maxCount), 1.0);;
+					pixels[id + 1] = 0.0;
+					pixels[id + 2] = min(max(random + 0.5, (float)(count + random*255)/(float)maxCount), 1.0);;
+				}
+				else if(threadIdx.x % 2 == 1 && blockIdx.x % 2 == 1)
+				{
+					pixels[id]     = min(max(random + 0.5, (float)(count + random*255)/(float)maxCount), 1.0);;
+					pixels[id + 1] =  min(max(random + 0.5, (float)(count + random*255)/(float)maxCount), 1.0);;
+					pixels[id + 2] = 0.0;
+				}
+				else
+				{
+					pixels[id]     = 0.0;
+					pixels[id + 1] = 0.0;
+					pixels[id + 2] = 1.0;
+				}
+			}
+			else if (count == 3)
+			{
+				if(blockIdx.x % 3 == 0)
+				{
+					pixels[id]     = 1.0;
+					pixels[id + 2] = 0.0;
+					pixels[id + 2] = 0.0;
+				}
+				else if(blockIdx.x % 3 == 2)
+				{
+					pixels[id]     = 0.0;
+					pixels[id + 1] = 1.0;
+					pixels[id + 2] = 0.0;
+				}
+				else
+				{
+					pixels[id]     = 0.0;
+					pixels[id + 1] = 0.0;
+					pixels[id + 2] = 1.0;
+				}
+			}
+			else if (count == 4)
+			{
+				if(threadIdx.x % 3 == 0)
+				{
+					pixels[id]     = 1.0;
+					pixels[id + 2] = 1.0;
+					pixels[id + 2] = 0.0;
+				}
+				else if(threadIdx.x % 3 == 2)
+				{
+					pixels[id]     = 1.0;
+					pixels[id + 1] = 0.0;
+					pixels[id + 2] = 1.0;
+				}
+				else
+				{
+					pixels[id]     = random;
+					pixels[id + 1] = 0.7;
+					pixels[id + 2] = random;
+				}
+			}
+			else if (count == 5)
+			{
+				pixels[id]     = 94.0/255.0;
+				pixels[id + 1] = 85.0/255.0;
+				pixels[id + 2] = 225.0/255.0;
+			}
+			else if (count >= 6 && count < 8)
+			{
+				pixels[id]     = 250.0/255.0;
+				pixels[id + 1] =215.0/255.0;
+				pixels[id + 2] = 118.0/255.0;
+			}
+			else if (count >= 8 && count < 12)
+			{
+				pixels[id]     = 0.0;
+				pixels[id + 1] = 1.0;
+				pixels[id + 2] = 1.0;
+			}
+			else if (count >= 12 && count < 15)
+			{
+				pixels[id]     = 245.0/255.0;
+				pixels[id + 1] = 173.0/255.0;
+				pixels[id + 2] = 7.0/255.0;
+			}
+			else if (count >=15 && count < 18)
+			{
+				pixels[id]     = 76.0/255.0;
+				pixels[id + 1] = 161.0/255.0;
+				pixels[id + 2] = 12.0/255.0;
+			}
+			else if (count >=18 && count < 21)
+			{
+				pixels[id]     = 250.0/255.0;
+				pixels[id + 1] = 152.0/255.0;
+				pixels[id + 2] = 253.0/255.0;
+			}
+			else if (count >=21 && count < 24)
+			{
+				pixels[id]     = 165.0/255.0;
+				pixels[id + 1] = 16.0/255.0;
+				pixels[id + 2] = 210.0/255.0;
+			}
+			else
+			{
+				pixels[id]     = 141.0/255.0;
+				pixels[id + 1] = 1.0;
+				pixels[id + 2] = 92.0/255.0;
+			}
+			
+
 		}
 		else //It Stuck around
 		{
-			pixels[i]     = 1.0;
-			pixels[i + 1] = 0.0;
-			pixels[i + 2] = 0.0;
+			pixels[id]     = 1.0;
+			pixels[id + 1] = 0.0;
+			pixels[id + 2] = min(mag/maxMag * brightness, 1.0);
 		}
-		//Setting the green
-		pixels[i+1] = 0.0;
-		//Setting the blue 
-		pixels[i+2] = 0.0;
 	}
+	
+	
 }
 
 void display(void) 
@@ -127,7 +256,7 @@ void display(void)
 	gridSize.y = 1;
 	gridSize.z = 1;
 	
-	colorPixels<<<gridSize, blockSize>>>(pixelsGPU, XMin, YMin, stepSizeX, stepSizeY, WindowWidth);
+	colorPixels<<<gridSize, blockSize>>>(pixelsGPU, XMin, YMin, stepSizeX, stepSizeY, WindowWidth, WindowHeight);
 	cudaErrorCheck(__FILE__, __LINE__);
 	
 	//Copying the pixels that we just colored back to the CPU.
