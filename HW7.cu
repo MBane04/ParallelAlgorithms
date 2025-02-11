@@ -60,7 +60,8 @@ __global__ void colorPixels(float *pixels, float xMin, float yMin, float dx, flo
 	for (int i = threadIdx.x; i < windowWidth; i += blockDim.x)//<= so we dont do something twice
 	{		
 		// Calculate the offset into the pixel buffer, needs to be inside the loop
-		id = 3 * (blockIdx.x * windowWidth + i); //3 * (what row we are on * size of row + offset in row)
+		id = 3 * (blockIdx.x * windowWidth + i); //3 * [first index of row (what row we are on * size of row) + offset in row]
+
 		//just to test above line,  b = 0 threadIdx = 2
 		//b=0: tidx = 0 3*(0*2048) + 0, 3*(1024), 3*(2048)[break before doing],3*(1), 3*(1025), 3*(2049)[break before doing]...
 		//b=1: 3*(2048), 3*(3072), 3*(4096)
