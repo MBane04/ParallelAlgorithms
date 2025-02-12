@@ -3,6 +3,13 @@
 #chmod 755 compile
 
 #for windows use this too
-#dos2unix compile HW7.cu
+dos2unix compile
 
-nvcc HW7.cu -o temp -lglut -lGL
+#sometimes the file causes issues, so added this to remove previous build
+rm -f temp
+
+#if gl use the one below
+#nvcc HW7.cu -o temp -lglut -lGL -lm\
+
+#else use this one
+nvcc HW8.cu -o temp

@@ -15,7 +15,7 @@
 #include <stdio.h>
 
 // Defines
-#define N 2000 // Length of the vector
+#define N 823 //823 Length of the vector
 
 // Global variables
 float *A_CPU, *B_CPU, *C_CPU; //CPU pointers
@@ -53,7 +53,7 @@ void cudaErrorCheck(const char *file, int line)
 // This will be the layout of the parallel space we will be using.
 void setUpDevices()
 {
-	BlockSize.x = 256;
+	BlockSize.x = 1000;
 	BlockSize.y = 1;
 	BlockSize.z = 1;
 	
@@ -107,6 +107,65 @@ void dotProductCPU(float *a, float *b, float *C_CPU, int n)
 // It adds vectors a and b on the GPU then stores result in vector c.
 __global__ void dotProductGPU(float *a, float *b, float *C_GPU, int n)
 {
+	int id = threadIdx.x;
+	
+	//multiply the vectors
+	if(id < n)
+	{
+		C_GPU[id] = a[id] * b[id];
+	}
+	
+	__syncthreads(); //make sure all threads are done before we sum up the vector.
+
+
+	//in class:
+	//while(id < n/2)
+	//{
+	//	C_GPU[id] += C_GPU[id + n/2];
+	//	id += blockDim.x;
+	//}
+	//__syncthreads();
+	//issues.... if n is not even, thats bad
+
+	// if (id < n)
+	// {
+	// 	//Original vector before adding
+	// 	printf("\n OG:::: id = %d, C_GPU[id] = %f\n", id, C_GPU[id]);
+	// }
+
+
+	//sum the vectors using folding
+	if(id < n)
+	{	
+		int size = n; //starting size is the initial size of the vector
+		while(size > 1) //while we can still fold the vector
+		{
+			if(size % 2 == 1 && id == 0) //if the size is odd and we are the first thread
+			{
+				C_GPU[id] += C_GPU[id + size - 1]; //add the last element to the first element
+				size--; //decrement the size so we don't add the last element again
+			}
+			else if (size % 2 == 1) //else if the size is odd
+			{
+				size--; //decrement the size
+				//not really necessary cause of int division, but we dont want any problems here
+			}
+
+			if (id < size/2) //if we are in the first half of the vector
+			{
+				//printf("\n id = %d, size = %d, C_GPU[id] = %f, id %d with value %f was added to id %d with value %f\n", id, size, C_GPU[id], id, C_GPU[id], id + size/2, C_GPU[id + size/2]);
+				C_GPU[id] += C_GPU[id + size/2]; //add us to the second half of the vector
+				
+			}
+
+			size = size/2; //fold in half
+
+			__syncthreads();//make sure everyone is on the same page then start over
+			
+		}
+	}
+	
+
 	
 }
 
@@ -124,6 +183,9 @@ bool check(float cpuAnswer, float gpuAnswer, float tolerence)
 	}
 	else 
 	{
+		//print result
+		printf("\n\n The CPU dot product is %f", cpuAnswer);
+		printf("\n The GPU dot product is %f", gpuAnswer);
 		return(false);
 	}
 }

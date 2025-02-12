@@ -3,9 +3,15 @@
 #chmod 755 compilerun
 
 #for windows use this too
-#dos2unix compilerun
-#dos2unix HW7.cu
+dos2unix compilerun
 
-nvcc HW7.cu -o temp -lglut -lGL -lm
+#sometimes the file causes issues, so added this to remove previous build
+rm -f temp
+
+#if gl use the one below
+#nvcc HW7.cu -o temp -lglut -lGL -lm\
+
+#else use this one
+nvcc HW8.cu -o temp
 
 ./temp
