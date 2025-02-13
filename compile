@@ -12,4 +12,4 @@ rm -f temp
 #nvcc HW7.cu -o temp -lglut -lGL -lm\
 
 #else use this one
-nvcc HW8.cu -o temp
+nvcc HW9.cu -o temp
