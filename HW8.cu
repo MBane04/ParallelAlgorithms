@@ -134,22 +134,24 @@ __global__ void dotProductGPU(float *a, float *b, float *C_GPU, int n)
 	// }
 
 
-	//sum the vectors using folding
+	//sum the vectors using folding, only works on one block due
 	if(id < n)
 	{	
 		int size = n; //starting size is the initial size of the vector
 		while(size > 1) //while we can still fold the vector
 		{
-			if(size % 2 == 1 && id == 0) //if the size is odd and we are the first thread
+			if(size % 2 == 1) //if the size is odd and we are the first thread
 			{
-				C_GPU[id] += C_GPU[id + size - 1]; //add the last element to the first element
+				if(id == 0)
+				{
+					//printf("ODD::: added id %d with value %f to id %d with value %f\n", id, C_GPU[id], id + size - 1, C_GPU[id + size - 1]);
+					C_GPU[id] += C_GPU[id + size - 1]; //add the last element to the first element
+				}
 				size--; //decrement the size so we don't add the last element again
 			}
-			else if (size % 2 == 1) //else if the size is odd
-			{
-				size--; //decrement the size
-				//not really necessary cause of int division, but we dont want any problems here
-			}
+
+			
+
 
 			if (id < size/2) //if we are in the first half of the vector
 			{

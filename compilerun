@@ -3,7 +3,7 @@
 #chmod 755 compilerun
 
 #for windows use this too
-dos2unix compilerun
+#dos2unix compilerun
 
 #sometimes the file causes issues, so added this to remove previous build
 rm -f temp

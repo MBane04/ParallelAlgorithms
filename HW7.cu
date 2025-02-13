@@ -23,8 +23,8 @@
 #define B  -0.1711	//Imaginary part of C
 
 // Global variables
-unsigned int WindowWidth = 5000; //attempted 200, 2048, 2500, 5000
-unsigned int WindowHeight = 1000; //attempted 100, 2048
+unsigned int WindowWidth = 1024; //attempted 200, 2048, 2500, 5000
+unsigned int WindowHeight = 1024; //attempted 100, 2048
 
 float XMin = -2.0;
 float XMax =  2.0;
