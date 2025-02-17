@@ -15,7 +15,7 @@
 #include <stdio.h>
 
 // Defines
-#define N 15'500// Length of the vector
+#define N 15'176// Length of the vector; works with 15'000, 15'001, 22
 
 // Global variables
 float *A_CPU, *B_CPU, *C_CPU; //CPU pointers
@@ -57,7 +57,7 @@ void setUpDevices()
 	BlockSize.y = 1;
 	BlockSize.z = 1;
 	
-	GridSize.x = (int)(N+1)/BlockSize.x + 1; //    N/BlockSize.x = # of blocks needed, since its int division add 1 to round up
+	GridSize.x = (int)((N+1)/BlockSize.x) + 1; //    N/BlockSize.x = # of blocks needed, since its int division add 1 to round up
 	GridSize.y = 1;
 	GridSize.z = 1;
 }
@@ -107,29 +107,52 @@ void dotProductCPU(float *a, float *b, float *C_CPU, int n)
 // It adds vectors a and b on the GPU then stores result in vector c.
 __global__ void dotProductGPU(float *a, float *b, float *c, int n)
 {
-	int id = threadIdx.x;
-	
-	c[id] = a[id] * b[id];
-	__syncthreads();
-		
+    extern __shared__ float C_Shared[]; // Shared memory for partial results
+    int id = threadIdx.x + blockIdx.x * blockDim.x;
+    int tid = threadIdx.x;
+
+    // Load data into shared memory
+    if (id < n)
+    {
+        C_Shared[tid] = a[id] * b[id]; //shared memory is only in a single block
+		//so global memory is multiplied then stored in shared memory.
+		//meaning block one holds 0-199, block two holds 200-399, and so on.
+	}
+    else
+    {
+        C_Shared[tid] = 0.0f; //this will happen at the last block if it has less than 200 elements.
+		//make sure it's 0 and not garbage, pretty sure this makes it work out, we'll see
+    }
+    __syncthreads();
+
+    //now changing this is as easy as swapping the c's with C_Shared and the ids with tids
+	//fold by block until one element is left in the block.
 	int fold = blockDim.x;
 	while(1 < fold)
 	{
-		if(fold%2 != 0)
+		if(fold%2 != 0) //
 		{
-			if(id == 0 && (fold - 1) < n)
+			if(tid == 0 && (fold - 1) < n)
 			{
-				c[0] = c[0] + c[fold - 1];
+				C_Shared[0] = C_Shared[0] + C_Shared[fold - 1];
 			}
 			fold = fold - 1;
 		}
 		fold = fold/2;
-		if(id < fold && (id + fold) < n)
+		if(tid < fold && (tid + fold) < n)
 		{
-			c[id] = c[id] + c[id + fold];
+			C_Shared[tid] = C_Shared[tid] + C_Shared[tid + fold];
 		}
 		__syncthreads();
 	}
+
+    // Store the result in global memory
+    if (tid == 0)
+    {
+        c[blockIdx.x] = C_Shared[0]; //each block should have the final result in C_Shared[0]
+		//so copy that bad mamma jamma and send it to it's corresponding block index of C_GPU
+		//now time to go change the CPU code to do the final reduction after we copy the memory
+    }
 }
 
 // Checking to see if anything went wrong in the vector addition.
@@ -222,10 +245,16 @@ int main()
 	cudaErrorCheck(__FILE__, __LINE__);
 	
 	// Copy Memory from GPU to CPU	
-	cudaMemcpyAsync(C_CPU, C_GPU, 1*sizeof(float), cudaMemcpyDeviceToHost);
+	cudaMemcpyAsync(C_CPU, C_GPU, GridSize.x*sizeof(float), cudaMemcpyDeviceToHost); //copy each block's result to CPU memory
 	cudaErrorCheck(__FILE__, __LINE__);
-	DotGPU = C_CPU[0]; // C_GPU was copied into C_CPU.
-	
+
+	// do the final reduction on the CPU
+	DotGPU = 0.0;
+	for(int i = 0; i < GridSize.x; i++)
+	{
+		DotGPU += C_CPU[i];
+	}
+
 	// Making sure the GPU and CPU wiat until each other are at the same place.
 	cudaDeviceSynchronize();
 	cudaErrorCheck(__FILE__, __LINE__);
@@ -237,6 +266,10 @@ int main()
 	if(check(DotCPU, DotGPU, Tolerance) == false)
 	{
 		printf("\n\n Something went wrong in the GPU dot product.\n");
+
+		printf("\n DotCPU = %f", DotCPU);
+		printf("\n DotGPU = %f", DotGPU);
+
 	}
 	else
 	{

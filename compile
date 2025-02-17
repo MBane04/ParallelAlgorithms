@@ -3,7 +3,7 @@
 #chmod 755 compile
 
 #for windows use this too
-#dos2unix compile
+dos2unix compile
 
 #sometimes the file causes issues, so added this to remove previous build
 rm -f temp
