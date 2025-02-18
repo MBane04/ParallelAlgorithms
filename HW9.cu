@@ -107,7 +107,7 @@ void dotProductCPU(float *a, float *b, float *C_CPU, int n)
 // It adds vectors a and b on the GPU then stores result in vector c.
 __global__ void dotProductGPU(float *a, float *b, float *c, int n)
 {
-    extern __shared__ float C_Shared[]; // Shared memory for partial results
+    extern __shared__ float C_Shared[]; // Dynamically allocated shared memory for partial results
     int id = threadIdx.x + blockIdx.x * blockDim.x;
     int tid = threadIdx.x;
 
@@ -241,7 +241,7 @@ int main()
 	cudaMemcpyAsync(B_GPU, B_CPU, N*sizeof(float), cudaMemcpyHostToDevice);
 	cudaErrorCheck(__FILE__, __LINE__);
 	
-	dotProductGPU<<<GridSize,BlockSize, BlockSize.x * sizeof(float)>>>(A_GPU, B_GPU, C_GPU, N);
+	dotProductGPU<<<GridSize,BlockSize, BlockSize.x * sizeof(float)>>>(A_GPU, B_GPU, C_GPU, N); //third param is shared mem size so we can easily scale the problem
 	cudaErrorCheck(__FILE__, __LINE__);
 	
 	// Copy Memory from GPU to CPU	
