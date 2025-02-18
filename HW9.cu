@@ -241,11 +241,11 @@ int main()
 	cudaMemcpyAsync(B_GPU, B_CPU, N*sizeof(float), cudaMemcpyHostToDevice);
 	cudaErrorCheck(__FILE__, __LINE__);
 	
-	dotProductGPU<<<GridSize,BlockSize, BlockSize *sizeof(float)>>>(A_GPU, B_GPU, C_GPU, N);
+	dotProductGPU<<<GridSize,BlockSize, BlockSize.x * sizeof(float)>>>(A_GPU, B_GPU, C_GPU, N);
 	cudaErrorCheck(__FILE__, __LINE__);
 	
 	// Copy Memory from GPU to CPU	
-	cudaMemcpyAsync(C_CPU, C_GPU, GridSize.x*sizeof(float), cudaMemcpyDeviceToHost); //copy each block's result to CPU memory
+	cudaMemcpyAsync(C_CPU, C_GPU, GridSize.x * sizeof(float), cudaMemcpyDeviceToHost); //copy each block's result to CPU memory
 	cudaErrorCheck(__FILE__, __LINE__);
 
 	// do the final reduction on the CPU
