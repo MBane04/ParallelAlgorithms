@@ -3,13 +3,13 @@
 #chmod 755 compile
 
 #for windows use this too
-dos2unix compile
+#dos2unix compile
 
 #sometimes the file causes issues, so added this to remove previous build
 rm -f temp
 
 #if gl use the one below
-#nvcc HW7.cu -o temp -lglut -lGL -lm\
+#nvcc HW7.cu -o temp -lglut -lGL -lm
 
 #else use this one
-nvcc HW9.cu -o temp
+nvcc HW10.cu -o temp
