@@ -13,3 +13,6 @@ rm -f temp
 
 #else use this one
 nvcc HW10.cu -o temp
+
+#else if its not cuda use gcc
+#gcc HW__.cu -o temp
