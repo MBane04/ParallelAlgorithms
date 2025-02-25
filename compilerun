@@ -12,6 +12,6 @@ rm -f temp
 nvcc HW12.cu -o temp -lglut -lGL -lm
 
 #else use this one
-nvcc HW10.cu -o temp
+#nvcc HW10.cu -o temp
 
 ./temp
