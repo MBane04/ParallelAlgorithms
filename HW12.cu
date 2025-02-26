@@ -5,8 +5,16 @@
  What to do:
  This code creates a random set of spheres and uses ray tracing to create a picture of them to be 
  displayed on the screen. Go through the code and understand it. Then:
+
  1: The spheres you created on the CPU do not change so send them up to the GPU and put them into constant memory.
- 2: Use CUDA events to time you code.
+	Summary of what I did since it's kinda all over the place:
+		-created a global constant sphereStruct array in the global memory
+		-copied the sphereStruct array from the CPU to the GPU using cudaMemcpyToSymbol
+		-changed every sphereInfo to SpheresConstant in the kernel
+		-removed the sphereInfo from the kernel call/parameters
+
+ 2: Use CUDA events to time your code.
+		DONE, I timed the makeBitMap function from memcopy to the end of the kernel call
 */
 
 // Include files
@@ -23,6 +31,7 @@
 #define XMIN -1.0f
 #define XMAX 1.0f
 #define YMIN -1.0f
+
 #define YMAX 1.0f
 #define ZMIN -1.0f
 #define ZMAX 1.0f
@@ -44,6 +53,8 @@ unsigned int WindowHeight = WINDOWHEIGHT;
 dim3 BlockSize, GridSize;
 float *PixelsCPU, *PixelsGPU; 
 sphereStruct *SpheresCPU, *SpheresGPU;
+__constant__ sphereStruct SpheresConstant[NUMSPHERES]; //Not possible to dynamically allocate :(
+bool isFirstDisplay = true; //Had to do this cause display/makebitmap gets called twice
 
 // Function prototypes
 void cudaErrorCheck(const char *, int);
@@ -51,7 +62,7 @@ void Display();
 void idle();
 void KeyPressed(unsigned char , int , int );
 __device__ float hit(float , float , float *, float , float , float , float );
-__global__ void makeSphersBitMap(float *, sphereStruct *);
+__global__ void makeSphersBitMap(float *);
 void makeRandomSpheres();
 void makeBitMap();
 void paintScreen();
@@ -86,7 +97,7 @@ void KeyPressed(unsigned char key, int x, int y)
 	}
 }
 
-__device__ float hit(float pixelx, float pixely, float *dimingValue, sphereStruct sphere)
+__device__ float hit(float pixelx, float pixely, float *dimingValue, sphereStruct sphere) //afaik I don't need to change this cause it's called in the kernel passing in the constant memory
 {
 	float dx = pixelx - sphere.x;  //Distance from ray to sphere center in x direction
 	float dy = pixely - sphere.y;  //Distance from ray to sphere center in y direction
@@ -100,7 +111,7 @@ __device__ float hit(float pixelx, float pixely, float *dimingValue, sphereStruc
 	return (ZMIN- 1.0); //If the ray doesn't hit anything return a number behind the box.
 }
 
-__global__ void makeSphersBitMap(float *pixels, sphereStruct *sphereInfo)
+__global__ void makeSphersBitMap(float *pixels) //got rid of sphereStruct *sphereInfo since it's in constant memory now
 {
 	float stepSizeX = (XMAX - XMIN)/((float)WINDOWWIDTH - 1);
 	float stepSizeY = (YMAX - YMIN)/((float)WINDOWHEIGHT - 1);
@@ -121,14 +132,14 @@ __global__ void makeSphersBitMap(float *pixels, sphereStruct *sphereInfo)
 	float maxHit = ZMIN -1.0f; // Initializing it to be out of the back of the box.
 	for(int i = 0; i < NUMSPHERES; i++)
 	{
-		hitValue = hit(pixelx, pixely, &dimingValue, sphereInfo[i]);
+		hitValue = hit(pixelx, pixely, &dimingValue, SpheresConstant[i]);
 		// do we hit any spheres? If so, how close are we to the center? (i.e. n)
 		if(maxHit < hitValue)
 		{
 			// Setting the RGB value of the sphere but also diming it as it gets close to the side of the sphere.
-			pixelr = sphereInfo[i].r * dimingValue; 	
-			pixelg = sphereInfo[i].g * dimingValue;	
-			pixelb = sphereInfo[i].b * dimingValue; 	
+			pixelr = SpheresConstant[i].r * dimingValue; 	
+			pixelg = SpheresConstant[i].g * dimingValue;	
+			pixelb = SpheresConstant[i].b * dimingValue; 	
 			maxHit = hitValue; // reset maxHit value to be the current closest sphere
 		}
 	}
@@ -158,14 +169,49 @@ void makeRandomSpheres()
 
 void makeBitMap()
 {	
-	cudaMemcpy(SpheresGPU, SpheresCPU, NUMSPHERES*sizeof(sphereStruct), cudaMemcpyHostToDevice);
+	//create event vars, were global but I moved them here cause we only need them for this function
+	//also threw errors when in the if statement, so now they're here
+	cudaEvent_t start, stop;
+
+	if(isFirstDisplay)
+	{
+		//create events :D
+		cudaEventCreate(&start);
+		cudaEventCreate(&stop);
+
+		//start timer (do this before memcopy or after?) the book did it before so i did too
+		//guess it's before, plus it works better cause 1 less check
+		cudaEventRecord(start, 0);
+	}
+
+	cudaMemcpyToSymbol(SpheresConstant, SpheresCPU, NUMSPHERES * sizeof(sphereStruct)); //mem to symbol because we're copying to constant memory
 	cudaErrorCheck(__FILE__, __LINE__);
 	
-	makeSphersBitMap<<<GridSize, BlockSize>>>(PixelsGPU, SpheresGPU);
+	makeSphersBitMap<<<GridSize, BlockSize>>>(PixelsGPU);
 	cudaErrorCheck(__FILE__, __LINE__);
 	
 	cudaMemcpyAsync(PixelsCPU, PixelsGPU, WINDOWWIDTH*WINDOWHEIGHT*3*sizeof(float), cudaMemcpyDeviceToHost);
 	cudaErrorCheck(__FILE__, __LINE__);
+
+	if(isFirstDisplay)
+	{
+		//stop timer
+		cudaEventRecord(stop, 0);
+
+		//wait for the event to be recorded
+		cudaEventSynchronize(stop);
+
+		//calculate time taken & print
+		float elapsedTime;
+		cudaEventElapsedTime(&elapsedTime, start, stop);
+		printf("\n\nSince apparently you just had to know....\nIt took: %f ms to do that \n\n", elapsedTime);
+
+		//destroy events >:{
+		cudaEventDestroy(start);
+		cudaEventDestroy(stop);
+		isFirstDisplay = false;
+	}
+
 	
 	paintScreen();
 }
