@@ -11,7 +11,7 @@
 // Include files
 #include <sys/time.h>
 #include <stdio.h>
-#include "./MyCuda.h"
+//#include "./MyCuda.h" //what is this? it threw an error and it's not in github
 
 // Defines
 #define SIZE 2000000 
@@ -65,7 +65,7 @@ void allocateMemory()
 	PageableNumbersOnCPU = (float*)malloc(SIZE*sizeof(float));
 	
 	//Allocate page locked Host (CPU) Memory
-	?????
+	cudaHostAlloc(&PageLockedNumbersOnCPU, SIZE*sizeof(float), cudaHostAllocDefault); //what is cudaHostAllocDefault?
 	cudaErrorCheck(__FILE__, __LINE__);
 }
 
@@ -75,7 +75,7 @@ void cleanUp()
 	cudaFree(NumbersOnGPU); 
 	cudaErrorCheck(__FILE__, __LINE__);
 	
-	?????
+	cudaFreeHost(PageLockedNumbersOnCPU);
 	cudaErrorCheck(__FILE__, __LINE__);
 	
 	free(PageableNumbersOnCPU); 
@@ -108,7 +108,7 @@ void copyPageLockedMemoryUp()
 {
 	for(int i = 0; i < NUMBER_OF_COPIES; i++)
 	{
-		?????
+		
 		cudaErrorCheck(__FILE__, __LINE__);
 	}
 }
@@ -117,7 +117,7 @@ void copyPageLockedMemoryDown()
 {
 	for(int i = 0; i < NUMBER_OF_COPIES; i++)
 	{
-		?????
+		cudaMemcpy(PageLockedNumbersOnCPU, NumbersOnGPU, SIZE*sizeof(float), cudaMemcpyDeviceToHost);
 		cudaErrorCheck(__FILE__, __LINE__);
 	}
 }
@@ -169,7 +169,7 @@ int main()
 	cudaEventRecord(StopEvent, 0);
 	cudaErrorCheck(__FILE__, __LINE__);
 	cudaEventSynchronize(StopEvent);
-	cudaErrorChecmyCudaErrorCheckk(__FILE__, __LINE__);
+	cudaErrorCheck(__FILE__, __LINE__);
 	cudaEventElapsedTime(&timeEvent, StartEvent, StopEvent);
 	cudaErrorCheck(__FILE__, __LINE__);
 	printf("\n Time on GPU using page locked memory down = %3.1f milliseconds", timeEvent);
