@@ -1,4 +1,4 @@
-// Name: 
+// Name: Mason Bane
 // Setting up a stream
 // nvcc HW15.cu -o temp
 
@@ -13,8 +13,8 @@
 #include <stdio.h>
 
 // Include files
-#define DATA_CHUNKS (1024*1024) 
-#define ENTIRE_DATA_SET (20*DATA_CHUNKS)
+#define DATA_CHUNKS (1024*1024)  //chunks we want to do at a time?
+#define ENTIRE_DATA_SET (20*DATA_CHUNKS) //self explanatory
 #define MAX_RANDOM_NUMBER 1000
 #define BLOCK_SIZE 256
 
@@ -25,7 +25,7 @@ float *NumbersOnGPU, *PageableNumbersOnCPU, *PageLockedNumbersOnCPU;
 float *A_CPU, *B_CPU, *C_CPU; //CPU pointers
 float *A_GPU, *B_GPU, *C_GPU; //GPU pointers
 cudaEvent_t StartEvent, StopEvent;
-// ??? Notice that we have to define a stream
+//define the stream
 cudaStream_t Stream0;
 
 //Function prototypes
@@ -73,7 +73,7 @@ void setUpCudaDevices()
 		exit(0);
 	}
 	
-	// ??? Notice that we have to create the stream
+	//create the stream
 	cudaStreamCreate(&Stream0);
 	cudaErrorCheck(__FILE__, __LINE__);
 	
@@ -103,7 +103,6 @@ void allocateMemory()
 	cudaMalloc(&C_GPU,DATA_CHUNKS*sizeof(float));
 	cudaErrorCheck(__FILE__, __LINE__);
 	
-	//??? Notice that we are using host page locked memory
 	//Allocate page locked Host (CPU) Memory
 	cudaHostAlloc(&A_CPU, ENTIRE_DATA_SET*sizeof(float), cudaHostAllocDefault);
 	cudaErrorCheck(__FILE__, __LINE__);
@@ -135,7 +134,7 @@ void cleanUp()
 	cudaFree(C_GPU); 
 	cudaErrorCheck(__FILE__, __LINE__);
 	
-	// ??? Notice that we have to free this memory with cudaFreeHost
+	//free the memory with cudaFreeHost
 	cudaFreeHost(A_CPU);
 	cudaErrorCheck(__FILE__, __LINE__);
 	cudaFreeHost(B_CPU);
@@ -148,7 +147,7 @@ void cleanUp()
 	cudaEventDestroy(StopEvent);
 	cudaErrorCheck(__FILE__, __LINE__);
 	
-	// ??? Notice that we have to kill the stream.
+	// kill the stream >:)
 	cudaStreamDestroy(Stream0);
 	cudaErrorCheck(__FILE__, __LINE__);
 }
@@ -174,12 +173,25 @@ int main()
 	cudaEventRecord(StartEvent, 0);
 	cudaErrorCheck(__FILE__, __LINE__);
 	
-	for(int i = 0; i < ENTIRE_DATA_SET; i += DATA_CHUNKS)
+	for(int i = 0; i < ENTIRE_DATA_SET; i += DATA_CHUNKS) //so from my understanding, is this copying the data/'queuing it' as the book said while the GPU is working on the previous data?
 	{
-		???
+		//copy the data to the GPU
+		//need 5 args now, the 5th arg is the stream
+		cudaMemcpyAsync(A_GPU, A_CPU + i, DATA_CHUNKS*sizeof(float), cudaMemcpyHostToDevice, Stream0); //copy what chunk we are on to the GPU, so jump i amount of data every time
+		cudaErrorCheck(__FILE__, __LINE__);
+		cudaMemcpyAsync(B_GPU, B_CPU + i, DATA_CHUNKS*sizeof(float), cudaMemcpyHostToDevice, Stream0); //same here
+		cudaErrorCheck(__FILE__, __LINE__);
+		
+		//call the kernel
+		trigAdditionGPU<<<GridSize, BlockSize, 0, Stream0>>>(A_GPU, B_GPU, C_GPU, DATA_CHUNKS);
+		cudaErrorCheck(__FILE__, __LINE__);
+		
+		//copy the chunk of data we just did back to the CPU
+		cudaMemcpyAsync(C_CPU+i, C_GPU, DATA_CHUNKS*sizeof(float), cudaMemcpyDeviceToHost, Stream0);
+		cudaErrorCheck(__FILE__, __LINE__);
 	}
 	
-	// ??? Notice that we have make the CPU wait until the GPU has finished stream0
+	//make the CPU wait until the GPU has finished stream0
 	cudaStreamSynchronize(Stream0); 
 	
 	cudaEventRecord(StopEvent, 0);
