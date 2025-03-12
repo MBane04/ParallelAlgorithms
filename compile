@@ -12,7 +12,7 @@ rm -f temp
 #nvcc HW14.cu -o temp -lglut -lGL -lm
 
 #else use this one
-nvcc HW15.cu -o temp
+nvcc HW16.cu -o temp
 
 #else if its not cuda use gcc
 #gcc HW__.cu -o temp
