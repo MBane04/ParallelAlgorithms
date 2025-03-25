@@ -9,9 +9,9 @@
 rm -f temp
 
 #if gl use the one below
-#nvcc HW13.cu -o temp -lglut -lGL -lm
+nvcc HW17.cu -o temp -lglut -lGLU -lGL
 
 #else use this one
-nvcc HW15.cu -o temp
+#nvcc HW16.cu -o temp
 
 ./temp
