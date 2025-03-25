@@ -8,11 +8,14 @@
  This is some not so crude that code moves two bodies around in a box, attracted by gravity and 
  repelled when they hit each other. Take this from a two-body problem to an N-body problem, where 
  NUMBER_OF_SPHERES is a #define that you can change. Also clean it up a bit so it is more user friendly.
+
+ //user can now exit the simulation by hitting the 'q' key or the 'esc' key or the x in the window
 */
 
 // Include files
 #include <GL/glut.h>
 #include <GL/glu.h>
+#include <GL/freeglut.h> //if this doesn't work sudo apt-get install freeglut3-dev
 #include <GL/gl.h>
 #include <math.h>
 #include <stdio.h>
@@ -43,6 +46,7 @@ const float ZMax = (LENGTH_OF_BOX/2.0);
 const float XMin = -(LENGTH_OF_BOX/2.0);
 const float YMin = -(LENGTH_OF_BOX/2.0);
 const float ZMin = -(LENGTH_OF_BOX/2.0);
+bool killSim = false;
 
 // Function prototypes
 void set_initail_conditions();
@@ -54,6 +58,9 @@ void move_bodies(float);
 void nbody();
 void Display(void);
 void reshape(int, int);
+void setup();
+void cleanUp();
+void keyboard(unsigned char key, int x, int y);
 int main(int, char**);
 
 //lets use a struct for each sphere
@@ -484,8 +491,9 @@ void nbody()
 	
 	draw_picture();
 	
-	while(time < STOP_TIME)
+	while(time < STOP_TIME && !killSim)
 	{
+		glutMainLoopEvent();// keep processing events
 		get_forces();
 	
 		move_bodies(time);
@@ -498,14 +506,18 @@ void nbody()
 		}
 		
 		time += DT;
+
 	}
+
+	cleanUp();
+	exit(0);
 	printf("\n DONE \n");
-	while(1);
+	//while(1);
 }
 
 void Display(void)
 {
-	gluLookAt(0.0, 0.0, 10.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0);
+	gluLookAt(0.0, 0.0, 5.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0);
 	glClear(GL_COLOR_BUFFER_BIT);
 	glClear(GL_DEPTH_BUFFER_BIT);
 	glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
@@ -530,17 +542,34 @@ void reshape(int w, int h)
 void setup()
 {
 	Spheres = (SphereStruct*)malloc(NUMBER_OF_SPHERES * sizeof(SphereStruct));
+	printf("\n\npress q, Q, or esc to quit\n");
 }
 
 void cleanUp()
 {
 	free(Spheres);
-	printf("\n Memory freed, ");
+	printf("\n Memory freed, ur welcome. bye.\n ");
+}
+
+void keyPressed(unsigned char key, int x, int y)
+{
+    switch (key) 
+	{
+        case 27:    // Escape key
+        case 'q':   // q key
+        case 'Q':   // Q key
+            printf("\n Exiting simulation...\n");
+            killSim = true;  // Set the kill flag
+            break;
+        default:
+            break;
+    }
 }
 
 int main(int argc, char** argv)
 {
 	setup();
+	set_initail_conditions();
 	glutInit(&argc,argv);
 	glutInitDisplayMode(GLUT_DOUBLE | GLUT_DEPTH | GLUT_RGB);
 	glutInitWindowSize(XWindowSize,YWindowSize);
@@ -569,6 +598,7 @@ int main(int argc, char** argv)
 	glEnable(GL_DEPTH_TEST);
 	glutDisplayFunc(Display);
 	glutReshapeFunc(reshape);
+	glutKeyboardFunc(keyPressed);
 	glutMainLoop();
 	atexit(cleanUp);
 	return 0;
