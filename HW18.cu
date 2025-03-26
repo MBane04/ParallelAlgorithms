@@ -1,4 +1,4 @@
-// Name: 
+// Name: Mason Bane
 // Creating a GPU nBody simulation from an nBody CPU simulation. 
 // nvcc HW18.cu -o temp -lglut -lm -lGLU -lGL
 
@@ -35,13 +35,16 @@
 
 // Globals
 int N, DrawFlag;
-float3 *P, *V, *F;
-float *M; 
+float3 *P, *V, *F, *P_GPU, *V_GPU, *F_GPU, *d_P, *d_V, *d_F;
+float *M, *M_GPU;
 float GlobeRadius, Diameter, Radius;
 float Damp;
 
+dim3 BlockSize; //This variable will hold the Dimensions of your blocks
+dim3 GridSize; //This variable will hold the Dimensions of your grid
+
 // Function prototypes
-void KeyPressed(unsigned char, int, int);
+void keyPressed(unsigned char, int, int);
 long elaspedTime(struct timeval, struct timeval);
 void drawPicture();
 void timer();
@@ -49,7 +52,34 @@ void setup();
 void nBody();
 int main(int, char**);
 
-void KeyPressed(unsigned char key, int x, int y)
+void cudaErrorCheck(const char *file, int line)
+{
+	cudaError_t  error;
+	error = cudaGetLastError();
+
+	if(error != cudaSuccess)
+	{
+		printf("\n CUDA ERROR: message = %s, File = %s, Line = %d\n", cudaGetErrorString(error), file, line);
+		exit(0);
+	}
+}
+
+
+//This will be the layout of the parallel space we will be using.
+void setUpDevices()
+{
+
+	//single block, 1024 threads
+	BlockSize.x =1024;
+	BlockSize.y = 1;
+	BlockSize.z = 1;
+	
+	GridSize.x = 1;
+	GridSize.y = 1;
+	GridSize.z = 1;
+}
+
+void keyPressed(unsigned char key, int x, int y)
 {
 	if(key == 's')
 	{
@@ -121,6 +151,19 @@ void setup()
     	P = (float3*)malloc(N*sizeof(float3));
     	V = (float3*)malloc(N*sizeof(float3));
     	F = (float3*)malloc(N*sizeof(float3));
+
+		// Allocate memory on the GPU, doing it here so all mallocs are in one place.
+		cudaMalloc(&P_GPU, N * sizeof(float3));
+		cudaErrorCheck(__FILE__, __LINE__);
+
+		cudaMalloc(&V_GPU, N * sizeof(float3));
+		cudaErrorCheck(__FILE__, __LINE__);
+
+		cudaMalloc(&F_GPU, N * sizeof(float3));
+		cudaErrorCheck(__FILE__, __LINE__);
+
+		cudaMalloc(&M_GPU, N * sizeof(float));
+		cudaErrorCheck(__FILE__, __LINE__);
     	
 	
 	Diameter = pow(H/G, 1.0/(LJQ - LJP)); // This is the value where the force is zero for the L-J type force.
@@ -177,66 +220,161 @@ void setup()
 	printf("\n To start timing type s.\n");
 }
 
+__global__ void getForces(float3 *P, float3 *V, float3 *F, float *M, int n)
+{
+	int idx = threadIdx.x; //rest isn't needed since we're only using one block.
+
+	if(idx < n)
+	{
+		//Set our forces to 0
+		F[idx].x = 0.0;
+		F[idx].y = 0.0;
+		F[idx].z = 0.0;
+
+		//Calculate my force based on everyone else
+		for(int i=0; i<n; i++)
+		{
+			if(i != idx) //If it's not me, it must be someone else
+			{
+				float dx = P[i].x-P[idx].x;
+				float dy = P[i].y-P[idx].y;
+				float dz = P[i].z-P[idx].z;
+				float d2 = dx*dx + dy*dy + dz*dz;
+				float d  = sqrt(d2);
+				
+				float force_mag  = (G*M[i]*M[idx])/(d2) - (H*M[i]*M[idx])/(d2*d2);
+
+				//update only my force
+				F[idx].x += force_mag*dx/d;
+				F[idx].y += force_mag*dy/d;
+				F[idx].z += force_mag*dz/d;
+
+				// messing with other people causes race conditions, because we're all trying to mess with the same people who are messing with us and who might have been messed with by someone else
+				//Dr. Wyatt is teaching us valuable life lessons, don't mess with other people's stuff cause it screws stuff up
+				// F[i].x -= force_mag*dx/d;
+				// F[i].y -= force_mag*dy/d;
+				// F[i].z -= force_mag*dz/d;
+			}
+		}
+	}
+}
+
+__global__ void updatePositions(float3 *P, float3 *V, float3 *F, float *M, int n, float dt, float damp, float time)
+{
+	int idx = threadIdx.x; //again, rest isn't needed since we're only using one block.
+
+	if(idx < n)
+	{
+		if(time == 0.0)
+		{
+			V[idx].x += (F[idx].x/M[idx])*0.5*dt;
+			V[idx].y += (F[idx].y/M[idx])*0.5*dt;
+			V[idx].z += (F[idx].z/M[idx])*0.5*dt;
+		}
+		else
+		{
+			V[idx].x += ((F[idx].x-damp*V[idx].x)/M[idx])*dt;
+			V[idx].y += ((F[idx].y-damp*V[idx].y)/M[idx])*dt;
+			V[idx].z += ((F[idx].z-damp*V[idx].z)/M[idx])*dt;
+		}
+
+		P[idx].x += V[idx].x*dt;
+		P[idx].y += V[idx].y*dt;
+		P[idx].z += V[idx].z*dt;
+	}
+}
+
 void nBody()
 {
-	float force_mag; 
-	float dx,dy,dz,d, d2;
-	
+
 	int    drawCount = 0; 
 	float  time = 0.0;
 	float dt = 0.0001;
 
+	//Copy data to the GPU since everything should be setup at this point.
+	cudaMemcpy(P_GPU, P, N * sizeof(float3), cudaMemcpyHostToDevice);
+	cudaErrorCheck(__FILE__, __LINE__);
+
+	cudaMemcpy(V_GPU, V, N * sizeof(float3), cudaMemcpyHostToDevice);
+	cudaErrorCheck(__FILE__, __LINE__);
+
+	cudaMemcpy(F_GPU, F, N * sizeof(float3), cudaMemcpyHostToDevice);
+	cudaErrorCheck(__FILE__, __LINE__);
+
+	cudaMemcpy(M_GPU, M, N * sizeof(float), cudaMemcpyHostToDevice);
+	cudaErrorCheck(__FILE__, __LINE__);
+
 	while(time < RUN_TIME)
 	{
-		for(int i=0; i<N; i++)
-		{
-			F[i].x = 0.0;
-			F[i].y = 0.0;
-			F[i].z = 0.0;
-		}
+		//get forces
+		// for(int i=0; i<N; i++)
+		// {
+		// 	F[i].x = 0.0;
+		// 	F[i].y = 0.0;
+		// 	F[i].z = 0.0;
+		// }
 		
-		for(int i=0; i<N; i++)
-		{
-			for(int j=i+1; j<N; j++)
-			{
-				dx = P[j].x-P[i].x;
-				dy = P[j].y-P[i].y;
-				dz = P[j].z-P[i].z;
-				d2 = dx*dx + dy*dy + dz*dz;
-				d  = sqrt(d2);
+		// for(int i=0; i<N; i++)
+		// {
+		// 	for(int j=i+1; j<N; j++)
+		// 	{
+		// 		dx = P[j].x-P[i].x;
+		// 		dy = P[j].y-P[i].y;
+		// 		dz = P[j].z-P[i].z;
+		// 		d2 = dx*dx + dy*dy + dz*dz;
+		// 		d  = sqrt(d2);
 				
-				force_mag  = (G*M[i]*M[j])/(d2) - (H*M[i]*M[j])/(d2*d2);
-				F[i].x += force_mag*dx/d;
-				F[j].x -= force_mag*dx/d;
-				F[i].y += force_mag*dy/d;
-				F[j].y -= force_mag*dy/d;
-				F[i].z += force_mag*dz/d;
-				F[j].z -= force_mag*dz/d;
-			}
-		}
+		// 		force_mag  = (G*M[i]*M[j])/(d2) - (H*M[i]*M[j])/(d2*d2);
+		// 		F[i].x += force_mag*dx/d;
+		// 		F[j].x -= force_mag*dx/d;
+		// 		F[i].y += force_mag*dy/d;
+		// 		F[j].y -= force_mag*dy/d;
+		// 		F[i].z += force_mag*dz/d;
+		// 		F[j].z -= force_mag*dz/d;
+		// 	}
+		// }
 
-		for(int i=0; i<N; i++)
-		{
-			if(time == 0.0)
-			{
-				V[i].x += (F[i].x/M[i])*0.5*dt;
-				V[i].y += (F[i].y/M[i])*0.5*dt;
-				V[i].z += (F[i].z/M[i])*0.5*dt;
-			}
-			else
-			{
-				V[i].x += ((F[i].x-Damp*V[i].x)/M[i])*dt;
-				V[i].y += ((F[i].y-Damp*V[i].y)/M[i])*dt;
-				V[i].z += ((F[i].z-Damp*V[i].z)/M[i])*dt;
-			}
+		//update the positions
+		// for(int i=0; i<N; i++)
+		// {
+		// 	if(time == 0.0)
+		// 	{
+		// 		V[i].x += (F[i].x/M[i])*0.5*dt;
+		// 		V[i].y += (F[i].y/M[i])*0.5*dt;
+		// 		V[i].z += (F[i].z/M[i])*0.5*dt;
+		// 	}
+		// 	else
+		// 	{
+		// 		V[i].x += ((F[i].x-Damp*V[i].x)/M[i])*dt;
+		// 		V[i].y += ((F[i].y-Damp*V[i].y)/M[i])*dt;
+		// 		V[i].z += ((F[i].z-Damp*V[i].z)/M[i])*dt;
+		// 	}
 
-			P[i].x += V[i].x*dt;
-			P[i].y += V[i].y*dt;
-			P[i].z += V[i].z*dt;
-		}
+		// 	P[i].x += V[i].x*dt;
+		// 	P[i].y += V[i].y*dt;
+		// 	P[i].z += V[i].z*dt;
+		// }
 
+		getForces<<<GridSize, BlockSize>>>(P_GPU, V_GPU, F_GPU, M_GPU, N);
+		cudaErrorCheck(__FILE__, __LINE__);
+
+		updatePositions<<<GridSize, BlockSize>>>(P_GPU, V_GPU, F_GPU, M_GPU, N, dt, Damp, time);
+		cudaErrorCheck(__FILE__, __LINE__);
+
+		//copy the data back to the CPU for drawing (Maybe????)
+
+		//might only need to copy the positions back to the CPU
+		// cudaMemcpy(V, V_GPU, N * sizeof(float3), cudaMemcpyDeviceToHost);
+		// cudaErrorCheck(__FILE__, __LINE__);
+
+		// cudaMemcpy(F, F_GPU, N * sizeof(float3), cudaMemcpyDeviceToHost);
+		// cudaErrorCheck(__FILE__, __LINE__);
+
+		//draw if we need to
 		if(drawCount == DRAW_RATE) 
 		{
+			cudaMemcpy(P, P_GPU, N * sizeof(float3), cudaMemcpyDeviceToHost); //only copy pos to CPU if drawing
+			cudaErrorCheck(__FILE__, __LINE__);
 			if(DrawFlag) drawPicture();
 			drawCount = 0;
 		}
@@ -244,13 +382,23 @@ void nBody()
 		time += dt;
 		drawCount++;
 	}
+	//now that we're done, copy the data back to the CPU
+	cudaMemcpy(P, P_GPU, N * sizeof(float3), cudaMemcpyDeviceToHost);
+	cudaErrorCheck(__FILE__, __LINE__);
+
+	cudaMemcpy(V, V_GPU, N * sizeof(float3), cudaMemcpyDeviceToHost);
+	cudaErrorCheck(__FILE__, __LINE__);
+
+	cudaMemcpy(F, F_GPU, N * sizeof(float3), cudaMemcpyDeviceToHost);
+	cudaErrorCheck(__FILE__, __LINE__);
+
 }
 
 int main(int argc, char** argv)
 {
 	if( argc < 3)
 	{
-		printf("\n You need to intire the number of bodies (an int)"); 
+		printf("\n You need to enter the number of bodies (an int)"); 
 		printf("\n and if you want to draw the bodies as they move (1 draw, 0 don't draw),");
 		printf("\n on the comand line.\n"); 
 		exit(0);
@@ -261,7 +409,9 @@ int main(int argc, char** argv)
 		DrawFlag = atoi(argv[2]);
 	}
 	
+	setUpDevices();
 	setup();
+
 	
 	int XWindowSize = 1000;
 	int YWindowSize = 1000;
@@ -292,7 +442,8 @@ int main(int argc, char** argv)
 	glEnable(GL_LIGHT0);
 	glEnable(GL_COLOR_MATERIAL);
 	glEnable(GL_DEPTH_TEST);
-	glutKeyboardFunc(KeyPressed);
+	glutKeyboardFunc(keyPressed);
+	glutDisplayFunc(drawPicture);
 	
 	float3 eye = {0.0f, 0.0f, 2.0f*GlobeRadius};
 	float near = 0.2;
@@ -308,7 +459,6 @@ int main(int argc, char** argv)
 	glutMainLoop();
 	return 0;
 }
-
 
 
 
