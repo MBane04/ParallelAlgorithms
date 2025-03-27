@@ -51,6 +51,7 @@ void timer();
 void setup();
 void nBody();
 int main(int, char**);
+void cleanUp();
 
 void cudaErrorCheck(const char *file, int line)
 {
@@ -88,6 +89,7 @@ void keyPressed(unsigned char key, int x, int y)
 	
 	if(key == 'q')
 	{
+		cleanUp();
 		exit(0);
 	}
 }
@@ -394,6 +396,21 @@ void nBody()
 
 }
 
+void cleanUp()
+{
+	free(P);
+	free(V);
+	free(F);
+	free(M);
+
+	cudaFree(P_GPU);
+	cudaFree(V_GPU);
+	cudaFree(F_GPU);
+	cudaFree(M_GPU);
+
+	printf("\n Memory has been cleaned up.\n");
+}
+
 int main(int argc, char** argv)
 {
 	if( argc < 3)
@@ -457,6 +474,7 @@ int main(int argc, char** argv)
 	gluLookAt(eye.x, eye.y, eye.z, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0);
 	
 	glutMainLoop();
+	atexit(cleanUp);
 	return 0;
 }
 
