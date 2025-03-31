@@ -9,7 +9,7 @@
 rm -f temp
 
 #if gl use the one below
-nvcc HW18.cu -o temp -lglut -lGLU -lGL
+nvcc HW19.cu -o temp -lglut -lGLU -lGL
 
 #else use this one
 #nvcc HW16.cu -o temp

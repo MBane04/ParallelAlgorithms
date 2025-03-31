@@ -4,12 +4,14 @@
 
 /*
  What to do:
- This is some lean nBody code that runs on the GPU. But the number of bodies it can simulated is limited to 1024
+ This is some lean nBody code that runs on the GPU. But the number of bodies it can simulate is limited to 1024
  so it can run on one block. Extend this code so it can simulation as many bodies as the user wants (within reason).
  Keep the same general format. But you will need to change a few major things in the code.
  Note: The code takes two arguments as inputs:
  1. the number of bodies to simulate,
  2. Whether to draw sub-arrangements of the bodies during the simulation (1), or only the first and last arrangements (0).
+
+ //succesfully tested with N = 5'000, 50'000
 */
 
 // Include files
@@ -54,6 +56,7 @@ void timer();
 void setup();
 __global__ void leapFrog(float3 *, float3 *, float3 *, float *, float, float, float, float, float, int);
 void nBody();
+void cleanUp(); //added a cleanUp function because apparently Dr. Wyatt doesn't know how to clean up after himself
 int main(int, char**);
 
 void cudaErrorCheck(const char *file, int line)
@@ -78,6 +81,7 @@ void keyPressed(unsigned char key, int x, int y)
 	
 	if(key == 'q')
 	{
+		cleanUp(); // Clean up memory before exiting.
 		exit(0);
 	}
 }
@@ -136,26 +140,27 @@ void timer()
 
 void setup()
 {
-    	float randomAngle1, randomAngle2, randomRadius;
-    	float d, dx, dy, dz;
-    	int test;
+	//cudaDeviceReset(); Added because I was getting a 'No CUDA-capable device is detected' error, fixed by turning the PC off and on again
+	float randomAngle1, randomAngle2, randomRadius;
+	float d, dx, dy, dz;
+	int test;
     	
-    	BlockSize.x = N;
+    BlockSize.x = 1024;
 	BlockSize.y = 1;
 	BlockSize.z = 1;
 	
-	GridSize.x = 1;
+	GridSize.x = (N - 1)/BlockSize.x + 1;
 	GridSize.y = 1;
 	GridSize.z = 1;
     	
-    	Damp = 0.5;
+    Damp = 0.5;
     	
-    	M = (float*)malloc(N*sizeof(float));
-    	P = (float3*)malloc(N*sizeof(float3));
-    	V = (float3*)malloc(N*sizeof(float3));
-    	F = (float3*)malloc(N*sizeof(float3));
+	M = (float*)malloc(N*sizeof(float));
+	P = (float3*)malloc(N*sizeof(float3));
+	V = (float3*)malloc(N*sizeof(float3));
+	F = (float3*)malloc(N*sizeof(float3));
     	
-    	cudaMalloc(&MGPU,N*sizeof(float));
+    cudaMalloc(&MGPU,N*sizeof(float));
 	cudaErrorCheck(__FILE__, __LINE__);
 	cudaMalloc(&PGPU,N*sizeof(float3));
 	cudaErrorCheck(__FILE__, __LINE__);
@@ -234,47 +239,51 @@ __global__ void leapFrog(float3 *p, float3 *v, float3 *f, float *m, float g, flo
 	float dx, dy, dz,d,d2;
 	float force_mag;
 	
-	int i = threadIdx.x;
+	int i = threadIdx.x + blockIdx.x * blockDim.x;
 	
-	f[i].x = 0.0f;
-	f[i].y = 0.0f;
-	f[i].z = 0.0f;
-
-	for(int j = 0; j < n; j++)
+	if(i < n)
 	{
-		if(i != j)
+		f[i].x = 0.0f;
+		f[i].y = 0.0f;
+		f[i].z = 0.0f;
+
+		for(int j = 0; j < n; j++)
 		{
-			dx = p[j].x-p[i].x;
-			dy = p[j].y-p[i].y;
-			dz = p[j].z-p[i].z;
-			d2 = dx*dx + dy*dy + dz*dz;
-			d  = sqrt(d2);
-			
-			force_mag  = (g*m[i]*m[j])/(d2) - (h*m[i]*m[j])/(d2*d2);
-			f[i].x += force_mag*dx/d;
-			f[i].y += force_mag*dy/d;
-			f[i].z += force_mag*dz/d;
+			if(i != j)
+			{
+				dx = p[j].x-p[i].x;
+				dy = p[j].y-p[i].y;
+				dz = p[j].z-p[i].z;
+				d2 = dx*dx + dy*dy + dz*dz;
+				d  = sqrt(d2);
+				
+				force_mag  = (g*m[i]*m[j])/(d2) - (h*m[i]*m[j])/(d2*d2);
+				f[i].x += force_mag*dx/d;
+				f[i].y += force_mag*dy/d;
+				f[i].z += force_mag*dz/d;
+			}
 		}
-	}
-	__syncthreads();
-	
-	if(t == 0.0f)
-	{
-		v[i].x += ((f[i].x-damp*v[i].x)/m[i])*dt/2.0f;
-		v[i].y += ((f[i].y-damp*v[i].y)/m[i])*dt/2.0f;
-		v[i].z += ((f[i].z-damp*v[i].z)/m[i])*dt/2.0f;
-	}
-	else
-	{
-		v[i].x += ((f[i].x-damp*v[i].x)/m[i])*dt;
-		v[i].y += ((f[i].y-damp*v[i].y)/m[i])*dt;
-		v[i].z += ((f[i].z-damp*v[i].z)/m[i])*dt;
-	}
+		__syncthreads();
+		
+		if(t == 0.0f)
+		{
+			v[i].x += ((f[i].x-damp*v[i].x)/m[i])*dt/2.0f;
+			v[i].y += ((f[i].y-damp*v[i].y)/m[i])*dt/2.0f;
+			v[i].z += ((f[i].z-damp*v[i].z)/m[i])*dt/2.0f;
+		}
+		else
+		{
+			v[i].x += ((f[i].x-damp*v[i].x)/m[i])*dt;
+			v[i].y += ((f[i].y-damp*v[i].y)/m[i])*dt;
+			v[i].z += ((f[i].z-damp*v[i].z)/m[i])*dt;
+		}
 
-	p[i].x += v[i].x*dt;
-	p[i].y += v[i].y*dt;
-	p[i].z += v[i].z*dt;
-	__syncthreads();
+		p[i].x += v[i].x*dt;
+		p[i].y += v[i].y*dt;
+		p[i].z += v[i].z*dt;
+		__syncthreads();
+	}
+	
 }
 
 void nBody()
@@ -298,6 +307,27 @@ void nBody()
 		t += dt;
 		drawCount++;
 	}
+}
+
+void cleanUp()
+{
+	// Free device memory
+	cudaFree(PGPU);
+	cudaErrorCheck(__FILE__, __LINE__);
+	cudaFree(VGPU);
+	cudaErrorCheck(__FILE__, __LINE__);
+	cudaFree(FGPU);
+	cudaErrorCheck(__FILE__, __LINE__);
+	cudaFree(MGPU);
+	cudaErrorCheck(__FILE__, __LINE__);
+
+	// Free host memory
+	free(P); 
+	free(V); 
+	free(F); 
+	free(M);
+	
+	printf("\n Cleaned up memory.\n");
 }
 
 int main(int argc, char** argv)
