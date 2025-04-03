@@ -9,8 +9,10 @@
 rm -f temp
 
 #if gl use the one below
-nvcc HW19.cu -o temp -lglut -lGLU -lGL
-
+nvcc -O3 -use_fast_math -arch=sm_86 HW20.cu -o temp -lglut -lm -lGLU -lGL
+#-O3 allows for agressive optimizations
+#-use_fast_math enables fast math optimizations
+#
 #else use this one
 #nvcc HW16.cu -o temp
 
