@@ -431,9 +431,9 @@ __global__ void nBodyGPUFirstIteration(float4 *__restrict__ p, float4 *__restric
     }
 
     // Update velocity (mass = 1.0)
-    my_vel.x += (force.x - damp * my_vel.x) * dt/2.0f;
-    my_vel.y += (force.y - damp * my_vel.y) * dt/2.0f;
-    my_vel.z += (force.z - damp * my_vel.z) * dt/2.0f;
+    my_vel.x += (force.x - damp * my_vel.x) * dt*0.5f;
+    my_vel.y += (force.y - damp * my_vel.y) * dt*0.5f;
+    my_vel.z += (force.z - damp * my_vel.z) * dt*0.5f;
 
     // Update position
     my_pos.x += my_vel.x * dt;
