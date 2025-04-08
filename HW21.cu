@@ -2,6 +2,8 @@
 // Optimizing nBody GPU code. 
 //nvcc -O3 -use_fast_math -arch=sm_86 --ptxas-options=-v -Xptxas -dlcm=ca -Xptxas -dlcm=cs  -maxrregcount=48 -o temp HW21best.cu -lglfw -lGLEW -lGL -lGLU
 
+//  !!!!!!!!!!  YOU MIGHT NEED TO RUN dependencies.sh TO INSTALL THE DEPENDENCIES FOR THIS CODE TO WORK.  !!!!!!!!!!!
+
 /*
 for BS in 128 256 512 1024; do
     nvcc -O3 -use_fast_math -DBLOCK_SIZE=$BS -arch=sm_86 --ptxas-options=-v -Xptxas -dlcm=ca HW21.cu -o temp_$BS -lglfw -lGLEW -lGL -lGLU
