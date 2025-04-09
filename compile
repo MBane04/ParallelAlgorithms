@@ -9,12 +9,11 @@
 rm -f temp
 
 #if gl use the one below
-nvcc -O3 -use_fast_math -arch=sm_86 --ptxas-options=-v -Xptxas -dlcm=ca  -Xptxas -dscm=cs -maxrregcount=48 -o temp HW21.cu -lglfw -lGLEW -lGL -lGLU
-#-O3 allows for agressive optimizations
-#-use_fast_math enables fast math optimizations
-#
+#nvcc HW21.cu -o temp -lglfw -lGLEW -lGL -lGLU
+
+
 #else use this one
-#nvcc HW16.cu -o temp
+nvcc HW22.cu -o temp
 
 #else if its not cuda use gcc
 #gcc HW__.cu -o temp

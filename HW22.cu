@@ -20,6 +20,8 @@
 
  5. Return Results to the CPU:
     Once both GPUs have completed their computations, transfer the results back to the CPU and verify that the results are correct.
+
+	//If something is off, check the memory jump in lines 287 and 289
 */
 
 // Include files
@@ -31,10 +33,12 @@
 
 // Global variables
 float *A_CPU, *B_CPU, *C_CPU; //CPU pointers
-float *A_GPU, *B_GPU, *C_GPU; //GPU pointers
+float *A_GPU0, *B_GPU0, *C_GPU0; //pointers to first GPU
+float *A_GPU1, *B_GPU1, *C_GPU1; //pointers to second GPU
 dim3 BlockSize; //This variable will hold the Dimensions of your blocks
-dim3 GridSize; //This variable will hold the Dimensions of your grid
+dim3 GridSize0, GridSize1;// Grid dims for each GPU
 float Tolerance = 0.01;
+int N1, N2; //Size of the vector each GPU is getting
 
 // Function prototypes
 void cudaErrorCheck(const char *, int);
@@ -64,30 +68,70 @@ void cudaErrorCheck(const char *file, int line)
 // This will be the layout of the parallel space we will be using.
 void setUpDevices()
 {
-	BlockSize.x = 256;
-	BlockSize.y = 1;
-	BlockSize.z = 1;
-	
-	GridSize.x = (N - 1)/BlockSize.x + 1; // This gives us the correct number of blocks.
-	GridSize.y = 1;
-	GridSize.z = 1;
+	//no. of devices
+	int deviceCount = 0;
+	cudaGetDeviceCount(&deviceCount);
+	if(deviceCount < 2)
+	{
+		printf("\n\n Look at this idiot, you'd think he'd know that this code only runs on 2 GPUs\n");
+		printf(" You have %d GPUs. Get your money up, buy another GPU, install it in the machine, then come back and talk to me\n", deviceCount);
+		printf(" Until then, don't waste my time.... later loser\n\n\n");
+
+
+
+		exit(0);
+	}
+
+	//calculate our vector size, one gets half, the other gets the rest
+	N1 = (int)N / 2; //typcasting to int just to be safe
+    N2 = N - N1;
+
+	//just to test, N = 4, 5
+	//N1 = 2, N2 = 4 - 2 = 2
+	//N1 = 2(.5), N2 = 5-2 = 3
+
+
+
+	//no need to change.... i think
+    BlockSize.x = 256;
+    BlockSize.y = 1;
+    BlockSize.z = 1;
+    
+    //Now we have to make sure each GPU gets its fair share of blocks to use
+    GridSize0.x = (N1 - 1) / BlockSize.x + 1;
+    GridSize0.y = 1;
+    GridSize0.z = 1;
+    
+    GridSize1.x = (N2 - 1) / BlockSize.x + 1;
+    GridSize1.y = 1;
+    GridSize1.z = 1;
 }
 
 // Allocating the memory we will be using.
 void allocateMemory()
 {	
-	// Host "CPU" memory.				
-	A_CPU = (float*)malloc(N*sizeof(float));
-	B_CPU = (float*)malloc(N*sizeof(float));
-	C_CPU = (float*)malloc(N*sizeof(float));
-	
-	// Device "GPU" Memory
-	cudaMalloc(&A_GPU,N*sizeof(float));
-	cudaErrorCheck(__FILE__, __LINE__);
-	cudaMalloc(&B_GPU,N*sizeof(float));
-	cudaErrorCheck(__FILE__, __LINE__);
-	cudaMalloc(&C_GPU,N*sizeof(float));
-	cudaErrorCheck(__FILE__, __LINE__);
+    // Host "CPU" memory
+    A_CPU = (float*)malloc(N*sizeof(float));
+    B_CPU = (float*)malloc(N*sizeof(float));
+    C_CPU = (float*)malloc(N*sizeof(float));
+    
+    // Set device to GPU 0 then allocate memory
+    cudaSetDevice(0);
+    cudaMalloc(&A_GPU0, N1*sizeof(float));
+    cudaErrorCheck(__FILE__, __LINE__);
+    cudaMalloc(&B_GPU0, N1*sizeof(float));
+    cudaErrorCheck(__FILE__, __LINE__);
+    cudaMalloc(&C_GPU0, N1*sizeof(float));
+    cudaErrorCheck(__FILE__, __LINE__);
+    
+    // Set device to GPU 1 then allocate memory
+    cudaSetDevice(1);
+    cudaMalloc(&A_GPU1, N2*sizeof(float));
+    cudaErrorCheck(__FILE__, __LINE__);
+    cudaMalloc(&B_GPU1, N2*sizeof(float));
+    cudaErrorCheck(__FILE__, __LINE__);
+    cudaMalloc(&C_GPU1, N2*sizeof(float));
+    cudaErrorCheck(__FILE__, __LINE__);
 }
 
 // Loading values into the vectors that we will add.
@@ -171,12 +215,24 @@ void CleanUp()
 	free(B_CPU); 
 	free(C_CPU);
 	
-	cudaFree(A_GPU); 
-	cudaErrorCheck(__FILE__, __LINE__);
-	cudaFree(B_GPU); 
-	cudaErrorCheck(__FILE__, __LINE__);
-	cudaFree(C_GPU);
-	cudaErrorCheck(__FILE__, __LINE__);
+	//Now we have 2 messes to clean up :(
+    // Free GPU 0 memory
+    cudaSetDevice(0);
+    cudaFree(A_GPU0);
+    cudaErrorCheck(__FILE__, __LINE__);
+    cudaFree(B_GPU0);
+    cudaErrorCheck(__FILE__, __LINE__);
+    cudaFree(C_GPU0);
+    cudaErrorCheck(__FILE__, __LINE__);
+    
+    // Free GPU 1 memory
+    cudaSetDevice(1);
+    cudaFree(A_GPU1);
+    cudaErrorCheck(__FILE__, __LINE__);
+    cudaFree(B_GPU1);
+    cudaErrorCheck(__FILE__, __LINE__);
+    cudaFree(C_GPU1);
+    cudaErrorCheck(__FILE__, __LINE__);
 }
 
 int main()
@@ -208,20 +264,49 @@ int main()
 	// Adding on the GPU
 	gettimeofday(&start, NULL);
 	
-	// Copy Memory from CPU to GPU		
-	cudaMemcpyAsync(A_GPU, A_CPU, N*sizeof(float), cudaMemcpyHostToDevice);
+	// Copy Memory from CPU to GPU0
+	cudaSetDevice(0);
+	cudaMemcpyAsync(A_GPU0, A_CPU, N1*sizeof(float), cudaMemcpyHostToDevice);
 	cudaErrorCheck(__FILE__, __LINE__);
-	cudaMemcpyAsync(B_GPU, B_CPU, N*sizeof(float), cudaMemcpyHostToDevice);
+	cudaMemcpyAsync(B_GPU0, B_CPU, N1*sizeof(float), cudaMemcpyHostToDevice);
+	cudaErrorCheck(__FILE__, __LINE__);
+
+	// Launch the kernel on GPU0
+	addVectorsGPU<<<GridSize0,BlockSize>>>(A_GPU0, B_GPU0, C_GPU0, N1);
+	cudaErrorCheck(__FILE__, __LINE__);
+
+	// Copy Memory from CPU to GPU1 (how do we skip the first half of the vector?)
+	cudaSetDevice(1);
+
+	// *****************IF ERRORS THESE ARE PROBABLY THE LINES*****************
+	/*
+		Copy starting at A_CPU and jump N1 floats should give the 2nd half? Assuming it's jumping N1 **Floats*** and not just N1 addresses/bytes.
+		Size should be correct though, N2 is the size of the second half of the vector, so I think only the first half can be wrong
+
+	*/
+	cudaMemcpyAsync(A_GPU1, A_CPU + N1, N2*sizeof(float), cudaMemcpyHostToDevice);
+	cudaErrorCheck(__FILE__, __LINE__);
+	cudaMemcpyAsync(B_GPU1, B_CPU + N1, N2*sizeof(float), cudaMemcpyHostToDevice);
+	cudaErrorCheck(__FILE__, __LINE__);
+
+	// Launch the kernel on GPU1
+	addVectorsGPU<<<GridSize1,BlockSize>>>(A_GPU1, B_GPU1 ,C_GPU1, N2);
 	cudaErrorCheck(__FILE__, __LINE__);
 	
-	addVectorsGPU<<<GridSize,BlockSize>>>(A_GPU, B_GPU ,C_GPU, N);
+	//So both kernels are launched, now lets bring the stuff back
+	//do we need to sync between these copies though?
+
+	// Copy Memory from GPU0 to CPU
+	cudaSetDevice(0);
+	cudaMemcpyAsync(C_CPU, C_GPU0, N1*sizeof(float), cudaMemcpyDeviceToHost);
 	cudaErrorCheck(__FILE__, __LINE__);
-	
-	// Copy Memory from GPU to CPU	
-	cudaMemcpyAsync(C_CPU, C_GPU, N*sizeof(float), cudaMemcpyDeviceToHost);
+
+	// Copy Memory from GPU1 to CPU
+	cudaSetDevice(1);
+	cudaMemcpyAsync(C_CPU + N1, C_GPU1, N2*sizeof(float), cudaMemcpyDeviceToHost);
 	cudaErrorCheck(__FILE__, __LINE__);
-	
-	// Making sure the GPU and CPU wiat until each other are at the same place.
+
+	// Making sure the GPU and CPU wait until each other are at the same place.
 	cudaDeviceSynchronize();
 	cudaErrorCheck(__FILE__, __LINE__);
 	
@@ -235,9 +320,9 @@ int main()
 	}
 	else
 	{
-		printf("\n\n You added the two vectors correctly on the GPU");
+		printf("\n\n You added the two vectors correctly on the GPUs");
 		printf("\n The time it took on the CPU was %ld microseconds", timeCPU);
-		printf("\n The time it took on the GPU was %ld microseconds", timeGPU);
+		printf("\n The time it took on the GPUs were %ld microseconds", timeGPU);
 	}
 	
 	// Your done so cleanup your room.	
