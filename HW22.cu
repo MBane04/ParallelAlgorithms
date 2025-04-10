@@ -301,12 +301,15 @@ int main()
 	cudaMemcpyAsync(C_CPU, C_GPU0, N1*sizeof(float), cudaMemcpyDeviceToHost);
 	cudaErrorCheck(__FILE__, __LINE__);
 
+	// Making sure the first GPU and CPU wait until each other are at the same place.
+	cudaDeviceSynchronize();
+
 	// Copy Memory from GPU1 to CPU
 	cudaSetDevice(1);
 	cudaMemcpyAsync(C_CPU + N1, C_GPU1, N2*sizeof(float), cudaMemcpyDeviceToHost);
 	cudaErrorCheck(__FILE__, __LINE__);
 
-	// Making sure the GPU and CPU wait until each other are at the same place.
+	// Making sure the 2nd GPU and CPU wait until each other are at the same place.
 	cudaDeviceSynchronize();
 	cudaErrorCheck(__FILE__, __LINE__);
 	
