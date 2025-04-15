@@ -1,5 +1,6 @@
 // Name: Mason Bane
 // Vector addition on two GPUs.
+// Also known as: HW23
 // nvcc HW22.cu -o temp
 /*
  What to do:
