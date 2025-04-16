@@ -132,7 +132,7 @@ void setup()
 	F = (float3*)malloc(N*sizeof(float3));
 	
 	cudaSetDevice(0);
-	cudaMalloc(&PGPU0, N0*sizeof(float3));
+	cudaMalloc(&PGPU0, N*sizeof(float3));
 	cudaErrorCheck(__FILE__, __LINE__);
 	cudaMalloc(&VGPU0, N0*sizeof(float3));
 	cudaErrorCheck(__FILE__, __LINE__);
@@ -142,7 +142,7 @@ void setup()
 	cudaErrorCheck(__FILE__, __LINE__);
 
 	cudaSetDevice(1);
-	cudaMalloc(&PGPU1, N1*sizeof(float3));
+	cudaMalloc(&PGPU1, N*sizeof(float3));
 	cudaErrorCheck(__FILE__, __LINE__);
 	cudaMalloc(&VGPU1, N1*sizeof(float3));
 	cudaErrorCheck(__FILE__, __LINE__);
@@ -315,7 +315,7 @@ void nBody()
 
 		// Send updated second half (from GPU1) to GPU0
 		cudaSetDevice(1);
-		cudaMemcpyPeerAsync(PGPU0 + N0, 0, PGPU1 + N0, 1, N1*sizeof(float3)); //pretty sick if you ask me
+		cudaMemcpyPeerAsync(PGPU0 + N0, 0, PGPU1, 1, N1*sizeof(float3));
 		cudaErrorCheck(__FILE__, __LINE__);
 
 		// Ensure all copies are complete before next iteration (not sure if this is necesssary, but i guess we'll see)
