@@ -9,11 +9,11 @@
 rm -f temp
 
 #if gl use the one below
-#nvcc HW21.cu -o temp -lglfw -lGLEW -lGL -lGLU
+nvcc HW24.cu -o temp -lglut -lm -lGLU -lGL
 
 
 #else use this one
-nvcc HW22.cu -o temp
+#nvcc HW22.cu -o temp
 
 #else if its not cuda use gcc
 #gcc HW__.cu -o temp

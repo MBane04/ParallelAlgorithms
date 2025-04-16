@@ -74,11 +74,9 @@ void setUpDevices()
 	cudaGetDeviceCount(&deviceCount);
 	if(deviceCount < 2)
 	{
-		printf("\n\n Look at this idiot, you'd think he'd know that this code only runs on 2 GPUs\n");
+		printf("\n\n Look at this idiot, you'd think they'd know that this code only runs on 2 GPUs\n");
 		printf(" You have %d GPUs. Get your money up, buy another GPU, install it in the machine, then come back and talk to me\n", deviceCount);
 		printf(" Until then, don't waste my time.... later loser\n\n\n");
-
-
 
 		exit(0);
 	}
