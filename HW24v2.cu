@@ -1,6 +1,6 @@
 // Name: Mason Bane
 // nBody code on multiple GPUs. 
-// nvcc HW24.cu -o temp -lglut -lm -lGLU -lGL
+// nvcc HW24v2.cu -o temp -lglut -lm -lGLU -lGL
 
 /*
  What to do:
