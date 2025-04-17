@@ -1,6 +1,6 @@
 // Name: Mason Bane
 // nBody code on multiple GPUs. 
-// nvcc HW24.cu -o temp -lglut -lm -lGLU -lGL
+// nvcc HW24v2.cu -o temp -lglut -lm -lGLU -lGL
 
 /*
  What to do:
@@ -47,7 +47,7 @@ dim3 GridSize0, GridSize1;
 void cudaErrorCheck(const char *, int);
 void drawPicture();
 void setup();
-__global__ void getForces(float3 *, float3 *, float3 *, float *, float, float, int);
+__global__ void getForces(float3 *, float3 *, float3 *, float *, float, float, int, int);
 __global__ void moveBodies(float3 *, float3 *, float3 *, float *, float, float, float, int);
 void nBody();
 int main(int, char**);
@@ -132,23 +132,23 @@ void setup()
 	F = (float3*)malloc(N*sizeof(float3));
 	
 	cudaSetDevice(0);
-	cudaMalloc(&PGPU0, N*sizeof(float3));
+	cudaMalloc(&PGPU0, N*sizeof(float3));  // All positions (force calc needs all positions)
 	cudaErrorCheck(__FILE__, __LINE__);
-	cudaMalloc(&VGPU0, N0*sizeof(float3));
+	cudaMalloc(&VGPU0, N0*sizeof(float3)); // Only first half velocities
 	cudaErrorCheck(__FILE__, __LINE__);
-	cudaMalloc(&FGPU0, N0*sizeof(float3));
+	cudaMalloc(&FGPU0, N0*sizeof(float3)); // Only first half forces
 	cudaErrorCheck(__FILE__, __LINE__);
-	cudaMalloc(&MGPU0, N0*sizeof(float));
+	cudaMalloc(&MGPU0, N*sizeof(float));   // All masses (force calc needs them too)
 	cudaErrorCheck(__FILE__, __LINE__);
 
 	cudaSetDevice(1);
-	cudaMalloc(&PGPU1, N*sizeof(float3));
+	cudaMalloc(&PGPU1, N*sizeof(float3));  // All positions (force calc needs all positions)
 	cudaErrorCheck(__FILE__, __LINE__);
-	cudaMalloc(&VGPU1, N1*sizeof(float3));
+	cudaMalloc(&VGPU1, N1*sizeof(float3)); // Only back half velocities
 	cudaErrorCheck(__FILE__, __LINE__);
-	cudaMalloc(&FGPU1, N1*sizeof(float3));
+	cudaMalloc(&FGPU1, N1*sizeof(float3)); // Only back half forces
 	cudaErrorCheck(__FILE__, __LINE__);
-	cudaMalloc(&MGPU1, N1*sizeof(float));
+	cudaMalloc(&MGPU1, N*sizeof(float));   // All masses (force calc needs them too)
 	cudaErrorCheck(__FILE__, __LINE__);
 
 
@@ -204,41 +204,42 @@ void setup()
 		M[i] = 1.0;
 	}
 	
+
 	cudaSetDevice(0);
-	cudaMemcpyAsync(PGPU0, P, N0*sizeof(float3), cudaMemcpyHostToDevice);
+	cudaMemcpyAsync(PGPU0, P, N*sizeof(float3), cudaMemcpyHostToDevice); // all pos
 	cudaErrorCheck(__FILE__, __LINE__);
-	cudaMemcpyAsync(VGPU0, V, N0*sizeof(float3), cudaMemcpyHostToDevice);
+	cudaMemcpyAsync(VGPU0, V, N0*sizeof(float3), cudaMemcpyHostToDevice); // half vel
 	cudaErrorCheck(__FILE__, __LINE__);
-	cudaMemcpyAsync(FGPU0, F, N0*sizeof(float3), cudaMemcpyHostToDevice);
+	cudaMemcpyAsync(FGPU0, F, N0*sizeof(float3), cudaMemcpyHostToDevice); // half force
 	cudaErrorCheck(__FILE__, __LINE__);
-	cudaMemcpyAsync(MGPU0, M, N0*sizeof(float), cudaMemcpyHostToDevice);
+	cudaMemcpyAsync(MGPU0, M, N*sizeof(float), cudaMemcpyHostToDevice); // all mass
 	cudaErrorCheck(__FILE__, __LINE__);
 
 	cudaSetDevice(1);
-	cudaMemcpyAsync(PGPU1, P+N0, N1*sizeof(float3), cudaMemcpyHostToDevice);
+	cudaMemcpyAsync(PGPU1, P, N*sizeof(float3), cudaMemcpyHostToDevice); // all pos
 	cudaErrorCheck(__FILE__, __LINE__);
-	cudaMemcpyAsync(VGPU1, V+N0, N1*sizeof(float3), cudaMemcpyHostToDevice);
+	cudaMemcpyAsync(VGPU1, V+N0, N1*sizeof(float3), cudaMemcpyHostToDevice); // half vel
 	cudaErrorCheck(__FILE__, __LINE__);
-	cudaMemcpyAsync(FGPU1, F+N0, N1*sizeof(float3), cudaMemcpyHostToDevice);
+	cudaMemcpyAsync(FGPU1, F+N0, N1*sizeof(float3), cudaMemcpyHostToDevice); // half force
 	cudaErrorCheck(__FILE__, __LINE__);
-	cudaMemcpyAsync(MGPU1, M+N0, N1*sizeof(float), cudaMemcpyHostToDevice);
+	cudaMemcpyAsync(MGPU1, M, N*sizeof(float), cudaMemcpyHostToDevice); // all mass
 	cudaErrorCheck(__FILE__, __LINE__);
 }
 
-__global__ void getForces(float3 *p, float3 *v, float3 *f, float *m, float g, float h, int n)
+__global__ void getForces(float3 *p, float3 *v, float3 *f, float *m, float g, float h, int myN, int totalN, int offset) //added offset to the function so it can be used for both GPUs
 {
 	float dx, dy, dz,d,d2;
 	float force_mag;
 	
-	int i = threadIdx.x + blockDim.x*blockIdx.x;
+	int i = threadIdx.x + blockDim.x*blockIdx.x + offset; 
 	
-	if(i < n)
+	if(i < myN + offset)
 	{
-		f[i].x = 0.0f;
-		f[i].y = 0.0f;
-		f[i].z = 0.0f;
+		f[i + offset].x = 0.0f;
+		f[i + offset].y = 0.0f;
+		f[i + offset].z = 0.0f;
 		
-		for(int j = 0; j < n; j++)
+		for(int j = 0; j < totalN; j++) //now we loopin through everyone, not just my half
 		{
 			if(i != j)
 			{
@@ -249,15 +250,16 @@ __global__ void getForces(float3 *p, float3 *v, float3 *f, float *m, float g, fl
 				d  = sqrt(d2);
 				
 				force_mag  = (g*m[i]*m[j])/(d2) - (h*m[i]*m[j])/(d2*d2);
-				f[i].x += force_mag*dx/d;
-				f[i].y += force_mag*dy/d;
-				f[i].z += force_mag*dz/d;
+				f[i + offset].x += force_mag*dx/d;
+				f[i + offset].y += force_mag*dy/d;
+				f[i + offset].z += force_mag*dz/d;
 			}
 		}
 	}
 }
 
-__global__ void moveBodies(float3 *p, float3 *v, float3 *f, float *m, float damp, float dt, float t, int n)
+
+__global__ void moveBodies(float3 *p, float3 *v, float3 *f, float *m, float damp, float dt, float t, int n, int offset)
 {	
 	int i = threadIdx.x + blockDim.x*blockIdx.x;
 	
@@ -276,9 +278,9 @@ __global__ void moveBodies(float3 *p, float3 *v, float3 *f, float *m, float damp
 			v[i].z += ((f[i].z-damp*v[i].z)/m[i])*dt;
 		}
 
-		p[i].x += v[i].x*dt;
-		p[i].y += v[i].y*dt;
-		p[i].z += v[i].z*dt;
+		p[i + offset].x += v[i].x*dt;
+		p[i + offset].y += v[i].y*dt;
+		p[i + offset].z += v[i].z*dt;
 	}
 }
 
@@ -290,16 +292,18 @@ void nBody()
 
 	while(t < RUN_TIME)
 	{
+		//forces & positions on GPU0
 		cudaSetDevice(0);
-		getForces<<<GridSize0,BlockSize>>>(PGPU0, VGPU0, FGPU0, MGPU0, G, H, N0);
+		getForces<<<GridSize0, BlockSize>>>(PGPU0, VGPU0, FGPU0, MGPU0, G, H, N0, N, 0); //updated so it checks all bodies and only updates the first half of the forces, offset is 0
 		cudaErrorCheck(__FILE__, __LINE__);
-		moveBodies<<<GridSize0,BlockSize>>>(PGPU0, VGPU0, FGPU0, MGPU0, Damp, dt, t, N0);
+		moveBodies<<<GridSize0,BlockSize>>>(PGPU0, VGPU0, FGPU0, MGPU0, Damp, dt, t, N0, 0);
 		cudaErrorCheck(__FILE__, __LINE__);
 
+		//forces & positions on GPU1
 		cudaSetDevice(1);
-		getForces<<<GridSize1,BlockSize>>>(PGPU1, VGPU1, FGPU1, MGPU1, G, H, N1);
+		getForces<<<GridSize1,BlockSize>>>(PGPU1, VGPU1, FGPU1, MGPU1, G, H, N1, N, N0); //same as the first, but not for the first, actually for just the 2nd half, offset is N0
 		cudaErrorCheck(__FILE__, __LINE__);
-		moveBodies<<<GridSize1,BlockSize>>>(PGPU1, VGPU1, FGPU1, MGPU1, Damp, dt, t, N1);
+		moveBodies<<<GridSize1,BlockSize>>>(PGPU1, VGPU1, FGPU1, MGPU1, Damp, dt, t, N1, N0);
 		cudaErrorCheck(__FILE__, __LINE__);
 
 		//make sure both devices are done before we copy the data
@@ -315,8 +319,8 @@ void nBody()
 
 		// Send updated second half (from GPU1) to GPU0
 		cudaSetDevice(1);
-		cudaMemcpyPeerAsync(PGPU0 + N0, 0, PGPU1, 1, N1*sizeof(float3));
-		cudaErrorCheck(__FILE__, __LINE__);
+        cudaMemcpyPeerAsync(PGPU0 + N0, 0, PGPU1 + N0, 1, N1*sizeof(float3));
+        cudaErrorCheck(__FILE__, __LINE__);
 
 		// Ensure all copies are complete before next iteration (not sure if this is necesssary, but i guess we'll see)
 		cudaSetDevice(0);
@@ -354,6 +358,29 @@ void nBody()
 		t += dt;
 		drawCount++;
 	}
+}
+
+void cleanup()
+{
+    // Free host memory
+    free(P);
+    free(V);
+    free(F);
+    free(M);
+    
+    // Free GPU 0 memory
+    cudaSetDevice(0);
+    cudaFree(PGPU0);
+    cudaFree(VGPU0);
+    cudaFree(FGPU0);
+    cudaFree(MGPU0);
+    
+    // Free GPU 1 memory
+    cudaSetDevice(1);
+    cudaFree(PGPU1);
+    cudaFree(VGPU1);
+    cudaFree(FGPU1);
+    cudaFree(MGPU1);
 }
 
 int main(int argc, char** argv)
@@ -404,6 +431,9 @@ int main(int argc, char** argv)
 	gluLookAt(eye.x, eye.y, eye.z, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0);
 	
 	glutMainLoop();
+
+	cleanup();
+
 	return 0;
 }
 
