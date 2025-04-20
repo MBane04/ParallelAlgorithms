@@ -34,14 +34,17 @@
 
 // Globals
 int N;
-int HalfN; // Half the vector size
+int myN; //number of bodies per GPU
 int NumberOfGpus;
 float3 *P, *V, *F;
 float *M; 
-float3 *PGPU0, *VGPU0, *FGPU0;
-float *MGPU0;
-float3 *PGPU1, *VGPU1, *FGPU1;
-float *MGPU1;
+
+//GPU variables
+float3 **PGPU, **VGPU, **FGPU; //double pointers for an array of pointers to the GPU memory
+float **MGPU; //again....
+int *NGPU; //pointer for # of bodies on each GPU
+int *OffsetGPU; //pointer for offset of each GPU
+
 float GlobeRadius, Diameter, Radius;
 float Damp;
 dim3 BlockSize;
@@ -74,7 +77,8 @@ void drawPicture()
 	glClear(GL_DEPTH_BUFFER_BIT);
 	
 	cudaSetDevice(0);
-	cudaMemcpyAsync(P, PGPU0, N*sizeof(float3), cudaMemcpyDeviceToHost);
+	//copy the positions from the first GPU to the CPU for drawing (should have all updated positions)
+	cudaMemcpyAsync(P, PGPU[0], N*sizeof(float3), cudaMemcpyDeviceToHost);
 	cudaErrorCheck(__FILE__, __LINE__);
 	
 	glColor3d(1.0,1.0,0.5);
@@ -92,76 +96,103 @@ void drawPicture()
 
 void setup()
 {
-    	float randomAngle1, randomAngle2, randomRadius;
-    	float d, dx, dy, dz;
-    	int test;
+	float randomAngle1, randomAngle2, randomRadius;
+	float d, dx, dy, dz;
+	int test;
 	
 	N = 101;
 	
 	cudaGetDeviceCount(&NumberOfGpus);
-	if(NumberOfGpus == 0)
+	if(NumberOfGpus < 1 && NumberOfGpus >= 0)
 	{
-		printf("\n Dude, you don't even have a GPU. Sorry, you can't play with us. Call NVIDIA and buy a GPU — loser!\n");
+		printf("\n\n\nWhy are you trying to run CUDA Code with no GPU?\n");
+		printf("You must be either broke or dumb, but one thing's for certain, you're definitely a LOSER.\n");
+		printf("Go get a job or get a really rich partner, get your life together, and buy a GPU.......\n");
+		printf("Until then, I dont want to see your ugly mug running this code again... I'm outta here\n\n");
 		exit(0);
+
 	}
-	else if(NumberOfGpus == 1)
+	else if(NumberOfGpus >= 1)
 	{
-		printf("\n Dude you only bought one GPU. Sorry you still can't play with us!\n");
-		//exit(0);
-	}
-	else if(2 <= NumberOfGpus)
-	{	
-		HalfN = (N + (N%2))/2;
-		
-		BlockSize.x = 128;
+		printf("\n\n Running with %d GPUs\n", NumberOfGpus);
+
+		//allocate arrays to hold pointers to GPU memory
+		PGPU = (float3 **)malloc(NumberOfGpus*sizeof(float3*));
+		VGPU = (float3 **)malloc(NumberOfGpus*sizeof(float3*));
+		FGPU = (float3 **)malloc(NumberOfGpus*sizeof(float3*));
+
+		MGPU = (float **)malloc(NumberOfGpus*sizeof(float*));
+
+		NGPU = (int *)malloc(NumberOfGpus*sizeof(int));
+		OffsetGPU = (int *)malloc(NumberOfGpus*sizeof(int));
+
+		//pad the number of bodies to be even for each GPU
+		if(N % NumberOfGpus != 0) //if there is a remainder
+		{
+			//add padding
+			N += (NumberOfGpus - N % NumberOfGpus); //#Gpus - remainder = #bodies to add
+
+			//should yield an even number of bodies for each GPU, worked with 101 on 2 and 3 GPUs doing the math by hand
+		}
+
+		//Now allocate the CPU memory to send to the GPUs
+		myN = N/NumberOfGpus; //number of bodies per GPU
+
+		for(int i=0; i<NumberOfGpus; i++)
+		{
+			PGPU[i] = (float3 *)malloc(myN*sizeof(float3));
+			VGPU[i] = (float3 *)malloc(myN*sizeof(float3));
+			FGPU[i] = (float3 *)malloc(myN*sizeof(float3));
+
+			MGPU[i] = (float *)malloc(myN*sizeof(float));
+			NGPU[i] = myN;
+			OffsetGPU[i] = i*myN; //pretty cool huh?
+		}
+
+		//Now each GPU should be able to also have the same amt of blocks and threads
+
+		BlockSize.x = BLOCK_SIZE;
 		BlockSize.y = 1;
 		BlockSize.z = 1;
-		
-		GridSize.x = (HalfN - 1)/BlockSize.x + 1; // This gives us the correct number of blocks.
+
+		GridSize.x = (myN + BlockSize.x - 1)/BlockSize.x; //this is the number of blocks needed to cover all the bodies
 		GridSize.y = 1;
 		GridSize.z = 1;
+
+		//allocate memory on the GPU(s)
+		for(int i=0; i<NumberOfGpus; i++)
+		{
+			cudaSetDevice(i);
+			cudaMalloc((void**)&PGPU[i], N*sizeof(float3)); //all
+			cudaErrorCheck(__FILE__, __LINE__);
+			cudaMalloc((void**)&VGPU[i], myN*sizeof(float3)); //mine
+			cudaErrorCheck(__FILE__, __LINE__);
+			cudaMalloc((void**)&FGPU[i], myN*sizeof(float3)); //mine
+			cudaErrorCheck(__FILE__, __LINE__);
+			cudaMalloc((void**)&MGPU[i], N*sizeof(float)); //all
+			cudaErrorCheck(__FILE__, __LINE__);
+		}		
 	}
 	else
 	{
-		printf("\n Dude, you have an uncountable number of GPUs? Not even Chuck Norris can do that!\n");
-		printf("\n We don't play with liars!\n");
+		printf("\n\n\n You have either a negative or uncountable number of GPUs....\n");
+		printf("How the he(ll)(ck if your an employer looking at this) did you even hit this block?.... Enjoy putting out the fire\n\n");
 		exit(0);
 	}
+
+	//Now we can finally let the CPU code do its thing......
 	
-    	Damp = 0.5;
-    	
-    	M = (float*)malloc(N*sizeof(float));
-    	P = (float3*)malloc(N*sizeof(float3));
-    	V = (float3*)malloc(N*sizeof(float3));
-    	F = (float3*)malloc(N*sizeof(float3));
-    	
-    	// !! Important: Setting the number of bodies a little bigger if it is not even or you will 
-    	// get a core dump because you will be copying memory you do not own. This only needs to be
-    	// done for positions but I did it for all for completness incase the code gets used for a
-    	// more complicated force function.
-    	
-    	int nn = 2*HalfN;
-    	// Device "GPU0" Memory
-	cudaSetDevice(0);
-    	cudaMalloc(&MGPU0,nn*sizeof(float));
-	cudaErrorCheck(__FILE__, __LINE__);
-	cudaMalloc(&PGPU0,nn*sizeof(float3));
-	cudaErrorCheck(__FILE__, __LINE__);
-	cudaMalloc(&VGPU0,nn*sizeof(float3));
-	cudaErrorCheck(__FILE__, __LINE__);
-	cudaMalloc(&FGPU0,nn*sizeof(float3));
-	cudaErrorCheck(__FILE__, __LINE__);
+	Damp = 0.5;
 	
-	// Device "GPU1" Memory
-	cudaSetDevice(1);
-    	cudaMalloc(&MGPU1,nn*sizeof(float));
-	cudaErrorCheck(__FILE__, __LINE__);
-	cudaMalloc(&PGPU1,nn*sizeof(float3));
-	cudaErrorCheck(__FILE__, __LINE__);
-	cudaMalloc(&VGPU1,nn*sizeof(float3));
-	cudaErrorCheck(__FILE__, __LINE__);
-	cudaMalloc(&FGPU1,nn*sizeof(float3));
-	cudaErrorCheck(__FILE__, __LINE__);
+	M = (float*)malloc(N*sizeof(float));
+	P = (float3*)malloc(N*sizeof(float3));
+	V = (float3*)malloc(N*sizeof(float3));
+	F = (float3*)malloc(N*sizeof(float3));
+	
+	// !! Important: Setting the number of bodies a little bigger if it is not even or you will 
+	// get a core dump because you will be copying memory you do not own. This only needs to be
+	// done for positions but I did it for all for completness incase the code gets used for a
+	// more complicated force function.
     	
 	Diameter = pow(H/G, 1.0/(LJQ - LJP)); // This is the value where the force is zero for the L-J type force.
 	Radius = Diameter/2.0;
@@ -214,47 +245,30 @@ void setup()
 		
 		M[i] = 1.0;
 	}
-	
-	// Device "GPU0" Memory
-	cudaSetDevice(0);
-	cudaMemcpyAsync(PGPU0, P, N*sizeof(float3), cudaMemcpyHostToDevice);
-	cudaErrorCheck(__FILE__, __LINE__);
-	cudaMemcpyAsync(VGPU0, V, N*sizeof(float3), cudaMemcpyHostToDevice);
-	cudaErrorCheck(__FILE__, __LINE__);
-	cudaMemcpyAsync(FGPU0, F, N*sizeof(float3), cudaMemcpyHostToDevice);
-	cudaErrorCheck(__FILE__, __LINE__);
-	cudaMemcpyAsync(MGPU0, M, N*sizeof(float), cudaMemcpyHostToDevice);
-	cudaErrorCheck(__FILE__, __LINE__);
-	
-	// Device "GPU1" Memory
-	cudaSetDevice(1);
-	cudaMemcpyAsync(PGPU1, P, N*sizeof(float3), cudaMemcpyHostToDevice);
-	cudaErrorCheck(__FILE__, __LINE__);
-	cudaMemcpyAsync(VGPU1, V, N*sizeof(float3), cudaMemcpyHostToDevice);
-	cudaErrorCheck(__FILE__, __LINE__);
-	cudaMemcpyAsync(FGPU1, F, N*sizeof(float3), cudaMemcpyHostToDevice);
-	cudaErrorCheck(__FILE__, __LINE__);
-	cudaMemcpyAsync(MGPU1, M, N*sizeof(float), cudaMemcpyHostToDevice);
-	cudaErrorCheck(__FILE__, __LINE__);
+
+	//Alright now that the CPUs done wiith all that we can send the data to the GPUs.
+
+	for(int i = 0; i < NumberOfGpus; i++)
+	{
+		cudaSetDevice(i);
+		cudaMemcpyAsync(PGPU[i], P, N*sizeof(float3), cudaMemcpyHostToDevice); //all
+		cudaErrorCheck(__FILE__, __LINE__);
+		cudaMemcpyAsync(VGPU[i], V, myN*sizeof(float3), cudaMemcpyHostToDevice); //mine
+		cudaErrorCheck(__FILE__, __LINE__);
+		cudaMemcpyAsync(FGPU[i], F, myN*sizeof(float3), cudaMemcpyHostToDevice); //mine
+		cudaErrorCheck(__FILE__, __LINE__);
+		cudaMemcpyAsync(MGPU[i], M, N*sizeof(float), cudaMemcpyHostToDevice); //all
+		cudaErrorCheck(__FILE__, __LINE__);
+	}
 		
 	printf("\n Setup finished.\n");
 }
 
-__global__ void getForces(float3 *p, float3 *v, float3 *f, float *m, float g, float h, int halfN, int n, int device)
+__global__ void getForces(float3 *p, float3 *v, float3 *f, float *m, float g, float h, int myN, int n, int device, int offset)
 {
 	float dx, dy, dz,d,d2;
 	float force_mag;
-	int offset;
 		
-	if(device == 0)
-	{
-		offset = 0;
-	}
-	else
-	{
-		offset = halfN;
-	}
-	
 	int i = threadIdx.x + blockDim.x*blockIdx.x + offset;
 	
 	if(i < n)
@@ -282,19 +296,9 @@ __global__ void getForces(float3 *p, float3 *v, float3 *f, float *m, float g, fl
 	}
 }
 
-__global__ void moveBodies(float3 *p, float3 *v, float3 *f, float *m, float damp, float dt, float t, int halfN, int n, int device)
+__global__ void moveBodies(float3 *p, float3 *v, float3 *f, float *m, float damp, float dt, float t, int myN, int n, int device, int offset)
 {
-	int offset;
-		
-	if(device == 0)
-	{
-		offset = 0;
-	}
-	else
-	{
-		offset = halfN;
-	}
-	
+
 	int i = threadIdx.x + blockDim.x*blockIdx.x + offset;
 	
 	if(i < n)
@@ -326,54 +330,51 @@ void nBody()
 
 	while(t < RUN_TIME)
 	{
-		// I will be doing some redundant setdevices for symmetry so it is easier to see what is going on.
-		
-		// Updating 1st half of bodies on devive 0
-		cudaSetDevice(0);
-		getForces<<<GridSize,BlockSize>>>(PGPU0, VGPU0, FGPU0, MGPU0, G, H, HalfN, N, 0);
-		cudaErrorCheck(__FILE__, __LINE__);
-		moveBodies<<<GridSize,BlockSize>>>(PGPU0, VGPU0, FGPU0, MGPU0, Damp, dt, t, HalfN, N, 0);
-		cudaErrorCheck(__FILE__, __LINE__);
-		
-		// Updating 2nd half of bodies on devive 1
-		cudaSetDevice(1);
-		getForces<<<GridSize,BlockSize>>>(PGPU1, VGPU1, FGPU1, MGPU1, G, H, HalfN, N, 1);
-		cudaErrorCheck(__FILE__, __LINE__);
-		moveBodies<<<GridSize,BlockSize>>>(PGPU1, VGPU1, FGPU1, MGPU1, Damp, dt, t, HalfN, N, 1);
-		cudaErrorCheck(__FILE__, __LINE__);
-		
-		// Syncing CPU with device 0.
-		cudaSetDevice(0);
-		cudaDeviceSynchronize();
-		cudaErrorCheck(__FILE__, __LINE__);
-		
-		// Syncing CPU with device 1
-		cudaSetDevice(1);
-		cudaDeviceSynchronize();
-		cudaErrorCheck(__FILE__, __LINE__);
-		
-		// Copying memory between GPUs. It my seem like you need to also copy velocities as well but velocities are only updated with 
-		// information from it's own thread.
-		// Copying 1st half of body positions updated on device 0 to devive 1. 
-		cudaSetDevice(0);	
-		cudaMemcpyAsync(PGPU1, PGPU0, HalfN*sizeof(float3), cudaMemcpyDeviceToDevice);
-		cudaErrorCheck(__FILE__, __LINE__);
-		
-		// Copying 2nd half of body positions updated on device 1 to devive 0.
-		cudaSetDevice(1);	
-		cudaMemcpyAsync(&PGPU0[HalfN], &PGPU1[HalfN], HalfN*sizeof(float3), cudaMemcpyDeviceToDevice);
-		cudaErrorCheck(__FILE__, __LINE__);
-		
-		// Syncing CPU with device 0.
-		cudaSetDevice(0);
-		cudaDeviceSynchronize();
-		cudaErrorCheck(__FILE__, __LINE__);
-		
-		// Syncing CPU with device 1
-		cudaSetDevice(1);
-		cudaDeviceSynchronize();
-		cudaErrorCheck(__FILE__, __LINE__);
-		
+		for(int i = 0; i < NumberOfGpus; i++)//for each device
+		{
+			//set the device and run its kernel
+			cudaSetDevice(i);
+			getForces<<<GridSize,BlockSize>>>(PGPU[i], VGPU[i], FGPU[i], MGPU[i], G, H, myN, N, i, OffsetGPU[i]);
+			cudaErrorCheck(__FILE__, __LINE__);
+			moveBodies<<<GridSize,BlockSize>>>(PGPU[i], VGPU[i], FGPU[i], MGPU[i], Damp, dt, t, myN, N, i, OffsetGPU[i]);
+			cudaErrorCheck(__FILE__, __LINE__);
+		}
+
+		//sync all devices to make sure they are done before we copy memory between them
+		for(int i = 0; i < NumberOfGpus; i++)//for each device
+		{
+			cudaSetDevice(i);
+			cudaDeviceSynchronize();
+			cudaErrorCheck(__FILE__, __LINE__);
+		}
+
+		if(NumberOfGpus > 1) //if we have 1 GPU, the device has everything updated already
+		{
+			for(int src = 0; src < NumberOfGpus; src++)//for each device (the source)
+			{
+				for(int dst = 0; dst < NumberOfGpus; dst++)//copy my data to everyone else(destination)
+				{
+					if(src != dst) //if not the same device
+					{
+						cudaSetDevice(src);
+						cudaMemcpyAsync(PGPU[dst], PGPU[src], myN*sizeof(float3), cudaMemcpyDeviceToDevice);
+						cudaErrorCheck(__FILE__, __LINE__);
+					}
+				}
+			}
+
+			//make sure we've gone around the circle and shared our data with eachother
+			// GPUs anonymous
+
+			for(int i = 0; i < NumberOfGpus; i++)//for each device
+			{
+				cudaSetDevice(i);
+				cudaDeviceSynchronize();
+				cudaErrorCheck(__FILE__, __LINE__);
+			}
+
+		}
+
 
 		if(drawCount == DRAW_RATE) 
 		{	
