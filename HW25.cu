@@ -80,11 +80,22 @@ void drawPicture()
 	//copy the positions from the first GPU to the CPU for drawing (should have all updated positions)
 	cudaMemcpyAsync(P, PGPU[0], N*sizeof(float3), cudaMemcpyDeviceToHost);
 	cudaErrorCheck(__FILE__, __LINE__);
+
+	//random color for the bodies
+	float randValue = ((float)rand()/(float)RAND_MAX);
+
 	
-	glColor3d(1.0,1.0,0.5);
+	
 	
 	for(int i=0; i<N; i++)
 	{
+
+		float r = ((float)rand()/(float)RAND_MAX);
+        float g = ((float)rand()/(float)RAND_MAX);
+        float b = ((float)rand()/(float)RAND_MAX);
+
+		glColor3d(r, g, b);
+		
 		glPushMatrix();
 		glTranslatef(P[i].x, P[i].y, P[i].z);
 		glutSolidSphere(Radius,20,20);
@@ -100,7 +111,7 @@ void setup()
 	float d, dx, dy, dz;
 	int test;
 	
-	N = 101;
+	N = 501;
 	
 	cudaGetDeviceCount(&NumberOfGpus);
 	if(NumberOfGpus < 1 && NumberOfGpus >= 0)
