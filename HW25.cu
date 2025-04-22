@@ -55,7 +55,7 @@ void cudaErrorCheck(const char *, int);
 void drawPicture();
 void setup();
 __global__ void getForces(float3 *, float3 *, float3 *, float *, float, float, int, int, int);
-__global__ void moveBodies(float3 *, float3 *, float3 *, float *, float, float, float, int, int, int);
+__global__ void moveBodies(float3 *, float3 *, float3 *, float *, float, float, float, int, int);
 void nBody();
 int main(int, char**);
 
@@ -275,63 +275,70 @@ void setup()
 	printf("\n Setup finished.\n");
 }
 
-__global__ void getForces(float3 *p, float3 *v, float3 *f, float *m, float g, float h, int myN, int n, int device, int offset)
+__global__ void getForces(float3 *p, float3 *v, float3 *f, float *m, float g, float h, int myN, int totalN, int offset)
 {
-	float dx, dy, dz,d,d2;
-	float force_mag;
-		
-	int i = threadIdx.x + blockDim.x*blockIdx.x + offset;
-	
-	if(i < n)
-	{
-		f[i].x = 0.0f;
-		f[i].y = 0.0f;
-		f[i].z = 0.0f;
-		
-		for(int j = 0; j < n; j++)
-		{
-			if(i != j)
-			{
-				dx = p[j].x-p[i].x;
-				dy = p[j].y-p[i].y;
-				dz = p[j].z-p[i].z;
-				d2 = dx*dx + dy*dy + dz*dz;
-				d  = sqrt(d2);
-				
-				force_mag  = (g*m[i]*m[j])/(d2) - (h*m[i]*m[j])/(d2*d2);
-				f[i].x += force_mag*dx/d;
-				f[i].y += force_mag*dy/d;
-				f[i].z += force_mag*dz/d;
-			}
-		}
-	}
+    float dx, dy, dz, d, d2;
+    float force_mag;
+    
+    int i = threadIdx.x + blockDim.x*blockIdx.x;
+    int globalIdx = i + offset;
+    
+    if(i < myN)  // Check against local bounds (starts at 0, ends at myN-1)
+    {
+        f[i].x = 0.0f;
+        f[i].y = 0.0f;
+        f[i].z = 0.0f;
+        
+        for(int j = 0; j < totalN; j++)
+        {
+            if(globalIdx != j)  // Use global index for comparison of everyone
+            {
+                dx = p[j].x-p[globalIdx].x;  //compare my global to every one else's global
+                dy = p[j].y-p[globalIdx].y;
+                dz = p[j].z-p[globalIdx].z;
+                d2 = dx*dx + dy*dy + dz*dz;
+                d = sqrt(d2);
+                
+				//calculate based on global idx
+                force_mag = (g*m[globalIdx]*m[j])/(d2) - (h*m[globalIdx]*m[j])/(d2*d2);
+
+                f[i].x += force_mag*dx/d;//store the forces of my half in local
+                f[i].y += force_mag*dy/d;
+                f[i].z += force_mag*dz/d;
+            }
+        }
+    }
 }
 
-__global__ void moveBodies(float3 *p, float3 *v, float3 *f, float *m, float damp, float dt, float t, int myN, int n, int device, int offset)
-{
+__global__ void moveBodies(float3 *p, float3 *v, float3 *f, float *m, float damp, float dt, float t, int n, int offset)
+{    
+    int i = threadIdx.x + blockDim.x*blockIdx.x;
+    int globalIdx = i + offset;
+    
+    if(i < n)
+    {
+        if(t == 0.0f)
+        {
+			//update local vels by using local forces and global mass (divided by 2 bc these are special)
+            v[i].x += ((f[i].x-damp*v[i].x)/m[globalIdx])*dt/2.0f;
+            v[i].y += ((f[i].y-damp*v[i].y)/m[globalIdx])*dt/2.0f;
+            v[i].z += ((f[i].z-damp*v[i].z)/m[globalIdx])*dt/2.0f;
+        }
+        else
+        {
+			//update local vels by using local forces and global mass
+            v[i].x += ((f[i].x-damp*v[i].x)/m[globalIdx])*dt;
+            v[i].y += ((f[i].y-damp*v[i].y)/m[globalIdx])*dt;
+            v[i].z += ((f[i].z-damp*v[i].z)/m[globalIdx])*dt;
+        }
 
-	int i = threadIdx.x + blockDim.x*blockIdx.x + offset;
-	
-	if(i < n)
-	{
-		if(t == 0.0f)
-		{
-			v[i].x += ((f[i].x-damp*v[i].x)/m[i])*dt/2.0f;
-			v[i].y += ((f[i].y-damp*v[i].y)/m[i])*dt/2.0f;
-			v[i].z += ((f[i].z-damp*v[i].z)/m[i])*dt/2.0f;
-		}
-		else
-		{
-			v[i].x += ((f[i].x-damp*v[i].x)/m[i])*dt;
-			v[i].y += ((f[i].y-damp*v[i].y)/m[i])*dt;
-			v[i].z += ((f[i].z-damp*v[i].z)/m[i])*dt;
-		}
-
-		p[i].x += v[i].x*dt;
-		p[i].y += v[i].y*dt;
-		p[i].z += v[i].z*dt;
-	}
+		//Update my global pos
+        p[globalIdx].x += v[i].x*dt;  
+        p[globalIdx].y += v[i].y*dt;
+        p[globalIdx].z += v[i].z*dt;
+    }
 }
+
 
 void nBody()
 {
@@ -345,9 +352,9 @@ void nBody()
 		{
 			//set the device and run its kernel
 			cudaSetDevice(i);
-			getForces<<<GridSize,BlockSize>>>(PGPU[i], VGPU[i], FGPU[i], MGPU[i], G, H, myN, N, i, OffsetGPU[i]);
+			getForces<<<GridSize,BlockSize>>>(PGPU[i], VGPU[i], FGPU[i], MGPU[i], G, H, myN, N, OffsetGPU[i]);
 			cudaErrorCheck(__FILE__, __LINE__);
-			moveBodies<<<GridSize,BlockSize>>>(PGPU[i], VGPU[i], FGPU[i], MGPU[i], Damp, dt, t, myN, N, i, OffsetGPU[i]);
+			moveBodies<<<GridSize,BlockSize>>>(PGPU[i], VGPU[i], FGPU[i], MGPU[i], Damp, dt, t, myN, OffsetGPU[i]);
 			cudaErrorCheck(__FILE__, __LINE__);
 		}
 
@@ -367,8 +374,8 @@ void nBody()
 				{
 					if(src != dst) //if not the same device
 					{
-						cudaSetDevice(src);
-						cudaMemcpyAsync(PGPU[dst], PGPU[src], myN*sizeof(float3), cudaMemcpyDeviceToDevice);
+						cudaSetDevice(dst);
+						cudaMemcpyAsync(PGPU[dst] + OffsetGPU[src],PGPU[src] + OffsetGPU[src], myN*sizeof(float3), cudaMemcpyDeviceToDevice);
 						cudaErrorCheck(__FILE__, __LINE__);
 					}
 				}
@@ -409,7 +416,7 @@ int main(int argc, char** argv)
 	glutInitDisplayMode(GLUT_DOUBLE | GLUT_DEPTH | GLUT_RGB);
 	glutInitWindowSize(XWindowSize,YWindowSize);
 	glutInitWindowPosition(0,0);
-	glutCreateWindow("Nbody Two GPUs");
+	glutCreateWindow("Nbody N GPUs");
 	GLfloat light_position[] = {1.0, 1.0, 1.0, 0.0};
 	GLfloat light_ambient[]  = {0.0, 0.0, 0.0, 1.0};
 	GLfloat light_diffuse[]  = {1.0, 1.0, 1.0, 1.0};
