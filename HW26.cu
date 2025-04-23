@@ -18,6 +18,7 @@
 #include <sys/time.h>
 
 // Defines
+#define BLOCK_SIZE 128
 #define PI 3.14159265359
 #define DRAW_RATE 10
 
@@ -38,10 +39,7 @@ int NPerGPU; // Amount of vector on each GPU.
 int NumberOfGpus;
 float3 *P, *V, *F;
 float *M; 
-float3 **PGPU = NULL;
-float3 **VGPU = NULL;
-float3 **FGPU = NULL;
-float **MGPU = NULL;
+int *OffsetGPU; // Store offsets for each GPU
 float GlobeRadius, Diameter, Radius;
 float Damp;
 dim3 BlockSize;
@@ -73,9 +71,6 @@ void drawPicture()
 	glClear(GL_COLOR_BUFFER_BIT);
 	glClear(GL_DEPTH_BUFFER_BIT);
 	
-	cudaSetDevice(0);
-	cudaMemcpyAsync(P, PGPU[0], N*sizeof(float3), cudaMemcpyDeviceToHost);
-	cudaErrorCheck(__FILE__, __LINE__);
 	
 	glColor3d(1.0,1.0,0.5);
 	
@@ -92,9 +87,16 @@ void drawPicture()
 
 void setup()
 {
-    	float randomAngle1, randomAngle2, randomRadius;
-    	float d, dx, dy, dz;
-    	int test;
+	float randomAngle1, randomAngle2, randomRadius;
+	float d, dx, dy, dz;
+	int test;
+
+	// Add at the start of setup()
+	cudaDeviceProp prop;
+	cudaGetDeviceProperties(&prop, 0);
+	printf("Device name: %s\n", prop.name);
+	printf("Compute capability: %d.%d\n", prop.major, prop.minor);
+	printf("Unified addressing: %d\n", prop.unifiedAddressing);
 	
 	N = 1001;
 	
@@ -111,7 +113,14 @@ void setup()
 	
 	// Using % to find how far off N is from prefectly dividing N. Then making sure there is enough blocks to cover this. 
 	NPerGPU = (N + (N%NumberOfGpus))/NumberOfGpus;
-		
+
+	OffsetGPU = (int *)malloc(NumberOfGpus*sizeof(int));
+	for(int i = 0; i < NumberOfGpus; i++)
+	{
+		OffsetGPU[i] = i*NPerGPU;
+	}
+
+
 	BlockSize.x = 128;
 	BlockSize.y = 1;
 	BlockSize.z = 1;
@@ -120,39 +129,25 @@ void setup()
 	GridSize.y = 1;
 	GridSize.z = 1;
 	
-    	Damp = 0.5;
-    	
-    	M = (float*)malloc(N*sizeof(float));
-    	P = (float3*)malloc(N*sizeof(float3));
-    	V = (float3*)malloc(N*sizeof(float3));
-    	F = (float3*)malloc(N*sizeof(float3));
-    	
-    	// !! Important: Setting the number of bodies a little bigger if it is not even or you will 
-    	// get a core dump because you will be copying memory you do not own. This only needs to be
-    	// done for positions but I did it for all for completness incase the code gets used for a
-    	// more complicated force function.
-    	
-    	int nn = NumberOfGpus*NPerGPU; // This will be N%NumberOfGpus bigger than N to keep use in bounds.
-    	
-    	// Allocating the first pointers that point to M, P, V, and F of the GPUs but actually reside on the CPU
-    	MGPU = (float**)malloc(NumberOfGpus * sizeof(float*));
-    	PGPU = (float3**)malloc(NumberOfGpus * sizeof(float3*));
-    	VGPU = (float3**)malloc(NumberOfGpus * sizeof(float3*));
-    	FGPU = (float3**)malloc(NumberOfGpus * sizeof(float3*));
-    	
-    	// Now pointing these to the apropriate spot on each GPU and cudaMallocing the full vector.
-    	for(int i = 0; i < NumberOfGpus; i++)
-    	{
-		cudaSetDevice(i);
-	    	cudaMalloc(&MGPU[i],nn*sizeof(float));
-		cudaErrorCheck(__FILE__, __LINE__);
-		cudaMalloc(&PGPU[i],nn*sizeof(float3));
-		cudaErrorCheck(__FILE__, __LINE__);
-		cudaMalloc(&VGPU[i],nn*sizeof(float3));
-		cudaErrorCheck(__FILE__, __LINE__);
-		cudaMalloc(&FGPU[i],nn*sizeof(float3));
-		cudaErrorCheck(__FILE__, __LINE__);
-	}
+	Damp = 0.5;
+	
+	// !! Important: Setting the number of bodies a little bigger if it is not even or you will 
+	// get a core dump because you will be copying memory you do not own. This only needs to be
+	// done for positions but I did it for all for completness incase the code gets used for a
+	// more complicated force function.
+	
+	//int nn = NumberOfGpus*NPerGPU; // This will be N%NumberOfGpus bigger than N to keep use in bounds.
+	
+    // Allocate unified memory - accessible from both CPU and GPU
+    cudaMallocManaged(&M, N*sizeof(float));
+    cudaErrorCheck(__FILE__, __LINE__);
+    cudaMallocManaged(&P, N*sizeof(float3));
+    cudaErrorCheck(__FILE__, __LINE__);
+    cudaMallocManaged(&V, N*sizeof(float3));
+    cudaErrorCheck(__FILE__, __LINE__);
+    cudaMallocManaged(&F, N*sizeof(float3));
+    cudaErrorCheck(__FILE__, __LINE__);
+	
     	
 	Diameter = pow(H/G, 1.0/(LJQ - LJP)); // This is the value where the force is zero for the L-J type force.
 	Radius = Diameter/2.0;
@@ -205,19 +200,7 @@ void setup()
 		
 		M[i] = 1.0;
 	}
-	
-	for(int i = 0; i < NumberOfGpus; i++)
-    	{
-		cudaSetDevice(i);
-	    	cudaMemcpyAsync(PGPU[i], P, N*sizeof(float3), cudaMemcpyHostToDevice);
-		cudaErrorCheck(__FILE__, __LINE__);
-		cudaMemcpyAsync(VGPU[i], V, N*sizeof(float3), cudaMemcpyHostToDevice);
-		cudaErrorCheck(__FILE__, __LINE__);
-		cudaMemcpyAsync(FGPU[i], F, N*sizeof(float3), cudaMemcpyHostToDevice);
-		cudaErrorCheck(__FILE__, __LINE__);
-		cudaMemcpyAsync(MGPU[i], M, N*sizeof(float), cudaMemcpyHostToDevice);
-		cudaErrorCheck(__FILE__, __LINE__);
-	}
+
 		
 	printf("\n Setup finished.\n");
 }
@@ -288,48 +271,38 @@ void nBody()
 	float dt = 0.0001;
 	
 	printf("\n Simulation is running with %d bodies.\n", N);
+
+	printf("NumberOfGpus is set to: %d\n", NumberOfGpus);
 	
 	while(t < RUN_TIME)
 	{
 		// Adjusting bodies
-		for(int i = 0; i < NumberOfGpus; i++)
-    		{
-			cudaSetDevice(i);
-			getForces<<<GridSize,BlockSize>>>(PGPU[i], VGPU[i], FGPU[i], MGPU[i], G, H, NPerGPU, N, i);
-			cudaErrorCheck(__FILE__, __LINE__);
-			moveBodies<<<GridSize,BlockSize>>>(PGPU[i], VGPU[i], FGPU[i], MGPU[i], Damp, dt, t, NPerGPU, N, i);
-			cudaErrorCheck(__FILE__, __LINE__);
-		}
+        for(int i = 0; i < NumberOfGpus; i++)
+        {
+			printf("Loop iteration i = %d\n", i);
+            cudaSetDevice(i);
+            
+            // Prefetch tha stuff... If the GPU can figure out where to go it can figure out what it needs, right?
+			cudaMemPrefetchAsync(P, N*sizeof(float3), i);
+			cudaMemPrefetchAsync(V, N*sizeof(float3), i);
+			cudaMemPrefetchAsync(F, N*sizeof(float3), i);
+			cudaMemPrefetchAsync(M, N*sizeof(float), i);
+            
+            // Launch kernels using the unified memory and stored offsets
+            getForces<<<GridSize,BlockSize>>>(P, V, F, M, G, H, NPerGPU, N, i);
+            cudaErrorCheck(__FILE__, __LINE__);
+            moveBodies<<<GridSize,BlockSize>>>(P, V, F, M, Damp, dt, t, NPerGPU, N, i);
+            cudaErrorCheck(__FILE__, __LINE__);
+        }
 		
 		// Syncing CPU with GPUs.
 		for(int i = 0; i < NumberOfGpus; i++)
-    		{
+    	{
 			cudaSetDevice(i);
 			cudaDeviceSynchronize();
 			cudaErrorCheck(__FILE__, __LINE__);
 		}
 		
-		// Copying memory between GPUs.
-		for(int i = 0; i < NumberOfGpus; i++)
-    		{
-			cudaSetDevice(i);
-			for(int j = 0; j < NumberOfGpus; j++)
-    			{
-    				if(i != j)
-    				{
-					cudaMemcpyAsync(&PGPU[j][i*NPerGPU], &PGPU[i][i*NPerGPU], NPerGPU*sizeof(float3), cudaMemcpyDeviceToDevice);
-					cudaErrorCheck(__FILE__, __LINE__);
-				}
-			}
-		}
-		
-		// Syncing CPU with GPUs.
-		for(int i = 0; i < NumberOfGpus; i++)
-    		{
-			cudaSetDevice(i);
-			cudaDeviceSynchronize();
-			cudaErrorCheck(__FILE__, __LINE__);
-		}
 
 		if(drawCount == DRAW_RATE) 
 		{	
@@ -390,6 +363,13 @@ int main(int argc, char** argv)
 	gluLookAt(eye.x, eye.y, eye.z, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0);
 	
 	glutMainLoop();
+
+    // Free unified memory
+    cudaFree(P);
+    cudaFree(V);
+    cudaFree(F);
+    cudaFree(M);
+
 	return 0;
 }
 

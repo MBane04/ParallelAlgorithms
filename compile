@@ -9,7 +9,7 @@
 rm -f temp
 
 #if gl use the one below
-nvcc HW25.cu -g -G -o temp -lglut -lm -lGLU -lGL
+nvcc HW26.cu -g -G -o temp -lglut -lm -lGLU -lGL
 
 
 #else use this one
