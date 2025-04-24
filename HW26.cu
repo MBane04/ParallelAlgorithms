@@ -1,6 +1,6 @@
 // Name: Mason Bane
 // nBody run on all available GPUs. 
-// nvcc HW26.cu -o temp -lglut -lm -lGLU -lGL
+// nvcc -use_fast_math HW26.cu -o temp -lglut -lm -lGLU -lGL
 
 /*
  What to do:
@@ -34,7 +34,7 @@
 #define RUN_TIME 1.0
 
 // Globals
-int N;
+int N, OriginalN;
 int NPerGPU; // Amount of vector on each GPU.
 int NumberOfGpus;
 float3 *P, *V, *F;
@@ -44,6 +44,7 @@ float GlobeRadius, Diameter, Radius;
 float Damp;
 dim3 BlockSize;
 dim3 GridSize;
+bool isFirstRun = true;
 
 // Function prototypes
 void cudaErrorCheck(const char *, int);
@@ -74,7 +75,7 @@ void drawPicture()
 	
 	glColor3d(1.0,1.0,0.5);
 	
-	for(int i=0; i<N; i++)
+	for(int i=0; i<OriginalN; i++)
 	{
 		glPushMatrix();
 		glTranslatef(P[i].x, P[i].y, P[i].z);
@@ -98,7 +99,7 @@ void setup()
 	printf("Compute capability: %d.%d\n", prop.major, prop.minor);
 	printf("Unified addressing: %d\n", prop.unifiedAddressing);
 	
-	N = 1001;
+	N = 301;
 	
 	cudaGetDeviceCount(&NumberOfGpus);
 	if(NumberOfGpus == 0)
@@ -111,8 +112,20 @@ void setup()
 		printf("\n You will be running on %d GPU(s)\n", NumberOfGpus);
 	}
 	
+	OriginalN = N; // Save the original number of bodies so we can use it later for drawing
+
 	// Using % to find how far off N is from prefectly dividing N. Then making sure there is enough blocks to cover this. 
-	NPerGPU = (N + (N%NumberOfGpus))/NumberOfGpus;
+	//pad the number of bodies to be even for each GPU
+	if(N % NumberOfGpus != 0) //if there is a remainder
+	{
+		//add padding
+		N += (NumberOfGpus - N % NumberOfGpus); //#Gpus - remainder = #bodies to add
+
+		//should yield an even number of bodies for each GPU, worked with 101 on 2 and 3 GPUs doing the math by hand
+	}
+
+	//Now allocate the CPU memory to send to the GPUs
+	NPerGPU = N/NumberOfGpus; //number of bodies per GPU
 
 	OffsetGPU = (int *)malloc(NumberOfGpus*sizeof(int));
 	for(int i = 0; i < NumberOfGpus; i++)
@@ -199,69 +212,86 @@ void setup()
 		F[i].z = 0.0;
 		
 		M[i] = 1.0;
+
+
+	}
+
+	//make sure the last body doesn't mess with other people, everything should be 0 but mass
+	for(int i = OriginalN; i < N; i++)
+	{			
+		P[i].x = 10.0e6f; //now its so far away it won't mess with anyone
+
+		//Extra bodies are now skippe din the force calculation, along with that if it moves (which it shouldn't ever)
+		//it won't mess with anyone else because it is so far away. It's just letting us use the same code for all bodies.
+
 	}
 
 		
 	printf("\n Setup finished.\n");
 }
 
-__global__ void getForces(float3 *p, float3 *v, float3 *f, float *m, float g, float h, int nPerGPU, int n, int device)
+__global__ void getForces(float3 *p, float3 *v, float3 *f, float *m, float g, float h, int myN, int totalN, int offset)
 {
-	float dx, dy, dz,d,d2;
-	float force_mag;
-	
-	int offset = nPerGPU*device;
-	int i = threadIdx.x + blockDim.x*blockIdx.x + offset;
-	
-	if(i < n)
-	{
-		f[i].x = 0.0f;
-		f[i].y = 0.0f;
-		f[i].z = 0.0f;
-		
-		for(int j = 0; j < n; j++)
-		{
-			if(i != j)
-			{
-				dx = p[j].x-p[i].x;
-				dy = p[j].y-p[i].y;
-				dz = p[j].z-p[i].z;
-				d2 = dx*dx + dy*dy + dz*dz;
-				d  = sqrt(d2);
-				
-				force_mag  = (g*m[i]*m[j])/(d2) - (h*m[i]*m[j])/(d2*d2);
-				f[i].x += force_mag*dx/d;
-				f[i].y += force_mag*dy/d;
-				f[i].z += force_mag*dz/d;
-			}
-		}
-	}
+    float dx, dy, dz, d, d2;
+    float force_mag;
+    
+    int i = threadIdx.x + blockDim.x*blockIdx.x;
+    int globalIdx = i + offset;
+    
+    if(i < myN)  // Check against local bounds (starts at 0, ends at myN-1)
+    {
+        f[i].x = 0.0f;
+        f[i].y = 0.0f;
+        f[i].z = 0.0f;
+        
+        for(int j = 0; j < totalN; j++)
+        {
+            if(globalIdx != j)  // Use global index for comparison of everyone
+            {
+                dx = p[j].x-p[globalIdx].x;  //compare my global to every one else's global
+                dy = p[j].y-p[globalIdx].y;
+                dz = p[j].z-p[globalIdx].z;
+                d2 = dx*dx + dy*dy + dz*dz;
+                d = sqrt(d2);
+                
+				//calculate based on global idx
+                force_mag = (g*m[globalIdx]*m[j])/(d2) - (h*m[globalIdx]*m[j])/(d2*d2);
+
+                f[i].x += force_mag*dx/d;//store the forces of my half in local
+                f[i].y += force_mag*dy/d;
+                f[i].z += force_mag*dz/d;
+            }
+        }
+    }
 }
 
-__global__ void moveBodies(float3 *p, float3 *v, float3 *f, float *m, float damp, float dt, float t, int nPerGPU, int n, int device)
-{
-	int offset = nPerGPU*device;	
-	int i = threadIdx.x + blockDim.x*blockIdx.x + offset;
-	
-	if(i < n)
-	{
-		if(t == 0.0f)
-		{
-			v[i].x += ((f[i].x-damp*v[i].x)/m[i])*dt/2.0f;
-			v[i].y += ((f[i].y-damp*v[i].y)/m[i])*dt/2.0f;
-			v[i].z += ((f[i].z-damp*v[i].z)/m[i])*dt/2.0f;
-		}
-		else
-		{
-			v[i].x += ((f[i].x-damp*v[i].x)/m[i])*dt;
-			v[i].y += ((f[i].y-damp*v[i].y)/m[i])*dt;
-			v[i].z += ((f[i].z-damp*v[i].z)/m[i])*dt;
-		}
+__global__ void moveBodies(float3 *p, float3 *v, float3 *f, float *m, float damp, float dt, float t, int n, int totalN, int offset)
+{    
+    int i = threadIdx.x + blockDim.x*blockIdx.x;
+    int globalIdx = i + offset;
+    
+    if(i < n)
+    {
+        if(t == 0.0f)
+        {
+			//update local vels by using local forces and global mass (divided by 2 bc these are special)
+            v[i].x += ((f[i].x-damp*v[i].x)/m[globalIdx])*dt/2.0f;
+            v[i].y += ((f[i].y-damp*v[i].y)/m[globalIdx])*dt/2.0f;
+            v[i].z += ((f[i].z-damp*v[i].z)/m[globalIdx])*dt/2.0f;
+        }
+        else
+        {
+			//update local vels by using local forces and global mass
+            v[i].x += ((f[i].x-damp*v[i].x)/m[globalIdx])*dt;
+            v[i].y += ((f[i].y-damp*v[i].y)/m[globalIdx])*dt;
+            v[i].z += ((f[i].z-damp*v[i].z)/m[globalIdx])*dt;
+        }
 
-		p[i].x += v[i].x*dt;
-		p[i].y += v[i].y*dt;
-		p[i].z += v[i].z*dt;
-	}
+		//Update my global pos
+        p[globalIdx].x += v[i].x*dt;  
+        p[globalIdx].y += v[i].y*dt;
+        p[globalIdx].z += v[i].z*dt;
+    }
 }
 
 void nBody()
@@ -270,29 +300,43 @@ void nBody()
 	float  t = 0.0;
 	float dt = 0.0001;
 	
-	printf("\n Simulation is running with %d bodies.\n", N);
+	
+	if(isFirstRun) //added a global so this only prints once
+	{
+		if(N > OriginalN)
+		{
+			printf("\n Simulation is *technically* using %d bodies due to padding %d bodies with 0.\n", N, N-OriginalN);
+			printf(" Only %d bodies will be drawn and calculated.\n", OriginalN);
+			printf(" And if something weird does happen, that guy is really far away.\n");
+		}
+		else
+		{
+			printf("\n Simulation is running with %d bodies.\n", N);
+		}
+	}
 
-	printf("NumberOfGpus is set to: %d\n", NumberOfGpus);
 	
 	while(t < RUN_TIME)
 	{
 		// Adjusting bodies
         for(int i = 0; i < NumberOfGpus; i++)
         {
-			printf("Loop iteration i = %d\n", i);
             cudaSetDevice(i);
             
             // Prefetch tha stuff... If the GPU can figure out where to go it can figure out what it needs, right?
-			cudaMemPrefetchAsync(P, N*sizeof(float3), i);
-			cudaMemPrefetchAsync(V, N*sizeof(float3), i);
-			cudaMemPrefetchAsync(F, N*sizeof(float3), i);
-			cudaMemPrefetchAsync(M, N*sizeof(float), i);
+			cudaMemPrefetchAsync(P, N*sizeof(float3), i);  // All p
+			cudaMemPrefetchAsync(V + OffsetGPU[i], NPerGPU*sizeof(float3), i);  // My v
+			cudaMemPrefetchAsync(F + OffsetGPU[i], NPerGPU*sizeof(float3), i);  // My f
+			cudaMemPrefetchAsync(M, N*sizeof(float), i);  // All m
             
             // Launch kernels using the unified memory and stored offsets
-            getForces<<<GridSize,BlockSize>>>(P, V, F, M, G, H, NPerGPU, N, i);
-            cudaErrorCheck(__FILE__, __LINE__);
-            moveBodies<<<GridSize,BlockSize>>>(P, V, F, M, Damp, dt, t, NPerGPU, N, i);
-            cudaErrorCheck(__FILE__, __LINE__);
+			getForces<<<GridSize,BlockSize>>>(P, V + OffsetGPU[i], F + OffsetGPU[i], M, G, H, NPerGPU, OriginalN, OffsetGPU[i]);
+			cudaErrorCheck(__FILE__, __LINE__);
+			moveBodies<<<GridSize,BlockSize>>>(P, V + OffsetGPU[i], F + OffsetGPU[i], M, Damp, dt, t, NPerGPU, N, OffsetGPU[i]);
+			cudaErrorCheck(__FILE__, __LINE__);
+
+			//Yep... that guy is not moving
+			//printf("Padded body is at %f %f %f\n", P[N-1].x, P[N-1].y, P[N-1].z);
         }
 		
 		// Syncing CPU with GPUs.
@@ -313,6 +357,8 @@ void nBody()
 		t += dt;
 		drawCount++;
 	}
+
+	isFirstRun = false; 
 }
 
 int main(int argc, char** argv)
@@ -363,6 +409,8 @@ int main(int argc, char** argv)
 	gluLookAt(eye.x, eye.y, eye.z, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0);
 	
 	glutMainLoop();
+
+	free(OffsetGPU);
 
     // Free unified memory
     cudaFree(P);
