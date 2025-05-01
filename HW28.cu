@@ -4,9 +4,9 @@
 
 /*
  What to do:
- Create a function that returns a random number that is either -1 or 1.
- Start at 0 and call this function to move you left (-1) or right (1) one step each call.
- Do this 10000 times and print out your final position.
+ This is some code that runs a random walk for 10000 steps.
+ Use cudaRand and run 10 of these runs at once with diferent seeds on the GPU.
+ Print out all 10 final positions.
 */
 
 // Include files
@@ -17,7 +17,7 @@
 
 
 // Defines
-#define NUM_WALKS 10'000 // Number of walks to perform
+#define NUM_WALKS 10 // Number of walks to perform
 #define N 10'000 // Number of steps per walk
 #define BLOCK_SIZE 256 // Number of threads per block
 
@@ -40,7 +40,7 @@ bool setup()
 	BlockSize.y = 1;
 	BlockSize.z = 1;
 
-	GridSize.x = (NUM_WALKS + BlockSize.x - 1) / BlockSize.x; // Number of blocks needed
+	GridSize.x = (NUM_WALKS + BlockSize.x - 1) / BlockSize.x; // Number of blocks needed( for 10 walks and 256 threads, we need 1 block) (10+256-1)/256 = 265/256 = 1
 	GridSize.y = 1;
 	GridSize.z = 1;
 
@@ -51,26 +51,6 @@ bool setup()
 	//no need for copies until we are done with the kernel
 
 	return true;
-}
-
-
-int walk(int steps)
-{
-	int position = 0; // Reset position for each walk
-
-	for (int i = 0; i < steps; i++)
-	{
-		// Random number -1 or 1
-		int step = (rand() % 2) * 2 - 1; // number%2 [0, 1] then multiply by 2 [0, 2] and subtract 1 [-1, 1]
-
-		//make sure the random number works
-		//printf("Step %d: %d\n", i + 1, step);
-
-		// Update position
-		position += step;
-	}
-
-	return position;
 }
 
 __global__ void walkGPU(int *distanceGPU, unsigned int seed)
@@ -104,7 +84,7 @@ int main(int argc, char** argv)
 
 	if(!setup()) return -1;
 
-	//Do the GPU walks
+	//Do the GPU walks, only need 1 kenrel call for all walks
 	walkGPU<<<GridSize, BlockSize>>>(distanceGPU, time(NULL));
 
 	// Wait for the kernel to finish
