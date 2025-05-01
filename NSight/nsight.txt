@@ -24,3 +24,4 @@ CUDA colors:
 Blue -> Shows kernel execution (taller bars = More SMs occupied)
 Purple -> Memory Transfer (light purple HtoD, Dark purple DtoH)
 Orange/Yellow -> Sync point or blocking operations
+
