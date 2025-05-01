@@ -1,0 +1,26 @@
+1.) compile your file with the -G debuggig flag to use NSight
+
+2.) use nsys to configure the NSight settings
+
+3.) Profile your code using this command:
+nsys profile ./[ExecutableName]
+
+5.) NSight generates a file for you to use, open the .nsys-rep file using nsys-ui
+nsys-ui timeline_report.nsys-rep
+
+6.) I have no idea how to make it persistent, so screenshot if you need it later
+
+
+Meaning of the colors:
+
+CPU Frame:
+Green -> Frame completed quickly
+Yellow -> Frame exceeded ideal time
+Red -> Frame stuttered
+Height shows activity duration
+
+
+CUDA colors:
+Blue -> Shows kernel execution (taller bars = More SMs occupied)
+Purple -> Memory Transfer (light purple HtoD, Dark purple DtoH)
+Orange/Yellow -> Sync point or blocking operations

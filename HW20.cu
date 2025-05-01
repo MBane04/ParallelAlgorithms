@@ -1,6 +1,6 @@
 // Name: Mason Bane
 // Optimizing nBody GPU code. 
-// nvcc HW20.cu -o temp -lglut -lm -lGLU -lGL
+// nvcc -use_fast_math -G HW20.cu -o temp -lglut -lm -lGLU -lGL
 
 /*
  What to do:
