@@ -1,0 +1,1 @@
+nvcc NSightDemo.cu -g -G -o demo -lglut -lm -lGLU -lGL
