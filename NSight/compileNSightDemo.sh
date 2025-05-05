@@ -1,1 +1,1 @@
-nvcc NSightDemo.cu -g -G -o demo -lglut -lm -lGLU -lGL
+nvcc slowDemo.cu -g -G -o slowDemo -lglut -lm -lGLU -lGL && nvcc -O3 -use_fast_math -arch=sm_86 --ptxas-options=-v -Xptxas -dlcm=ca -Xptxas -dlcm=cs  -maxrregcount=48 -o fastDemo fastDemo.cu -lglfw -lGLEW -lGL -lGLU

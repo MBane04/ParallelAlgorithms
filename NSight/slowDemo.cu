@@ -1,6 +1,6 @@
 // Name: Mason Bane
 // Creating a GPU nBody simulation from an nBody CPU simulation. 
-// nvcc NSightDemo.cu -G -o temp -lglut -lm -lGLU -lGL
+// nvcc  slowDemo.cu -G -o temp -lglut -lm -lGLU -lGL
 
 /*
  What to do:
@@ -43,6 +43,7 @@ bool slowCode = true; // This is to slow down the code so we can see the bodies 
 
 dim3 BlockSize; //This variable will hold the Dimensions of your blocks
 dim3 GridSize; //This variable will hold the Dimensions of your grid
+cudaStream_t memStream; //This variable will hold the memory stream for the GPU
 
 // Function prototypes
 void keyPressed(unsigned char, int, int);
@@ -116,6 +117,10 @@ void drawPicture()
 	glClear(GL_DEPTH_BUFFER_BIT);
 	
 	glColor3d(1.0,1.0,0.5);
+
+	slowCode = true ? cudaMemcpy(P, P_GPU, N * sizeof(float3), cudaMemcpyDeviceToHost) : cudaMemcpyAsync(P_GPU, P, N * sizeof(float3), cudaMemcpyHostToDevice, memStream);
+	cudaErrorCheck(__FILE__, __LINE__);
+
 	for(i=0; i<N; i++)
 	{
 		glPushMatrix();
@@ -135,8 +140,8 @@ void timer()
 	drawPicture();
 	gettimeofday(&start, NULL);
     		nBody();
-    	gettimeofday(&end, NULL);
-    	drawPicture();
+    gettimeofday(&end, NULL);
+    drawPicture();
     	
 	computeTime = elaspedTime(start, end);
 	printf("\n The compute time was %ld microseconds.\n\n", computeTime);
@@ -144,29 +149,32 @@ void timer()
 
 void setup()
 {
-    	float randomAngle1, randomAngle2, randomRadius;
-    	float d, dx, dy, dz;
-    	int test;
-    	
-    	Damp = 0.5;
-    	
-    	M = (float*)malloc(N*sizeof(float));
-    	P = (float3*)malloc(N*sizeof(float3));
-    	V = (float3*)malloc(N*sizeof(float3));
-    	F = (float3*)malloc(N*sizeof(float3));
+	float randomAngle1, randomAngle2, randomRadius;
+	float d, dx, dy, dz;
+	int test;
+	
+	Damp = 0.5;
 
-		// Allocate memory on the GPU, doing it here so all mallocs are in one place.
-		cudaMalloc(&P_GPU, N * sizeof(float3));
-		cudaErrorCheck(__FILE__, __LINE__);
+	cudaStreamCreate(&memStream);
+	cudaErrorCheck(__FILE__, __LINE__);
+	
+	M = (float*)malloc(N*sizeof(float));
+	P = (float3*)malloc(N*sizeof(float3));
+	V = (float3*)malloc(N*sizeof(float3));
+	F = (float3*)malloc(N*sizeof(float3));
 
-		cudaMalloc(&V_GPU, N * sizeof(float3));
-		cudaErrorCheck(__FILE__, __LINE__);
+	// Allocate memory on the GPU, doing it here so all mallocs are in one place.
+	cudaMalloc(&P_GPU, N * sizeof(float3));
+	cudaErrorCheck(__FILE__, __LINE__);
 
-		cudaMalloc(&F_GPU, N * sizeof(float3));
-		cudaErrorCheck(__FILE__, __LINE__);
+	cudaMalloc(&V_GPU, N * sizeof(float3));
+	cudaErrorCheck(__FILE__, __LINE__);
 
-		cudaMalloc(&M_GPU, N * sizeof(float));
-		cudaErrorCheck(__FILE__, __LINE__);
+	cudaMalloc(&F_GPU, N * sizeof(float3));
+	cudaErrorCheck(__FILE__, __LINE__);
+
+	cudaMalloc(&M_GPU, N * sizeof(float));
+	cudaErrorCheck(__FILE__, __LINE__);
     	
 	
 	Diameter = pow(H/G, 1.0/(LJQ - LJP)); // This is the value where the force is zero for the L-J type force.
@@ -220,6 +228,16 @@ void setup()
 		
 		M[i] = 1.0;
 	}
+
+	//copy the data to the GPU
+	cudaMemcpy(P_GPU, P, N * sizeof(float3), cudaMemcpyHostToDevice);
+	cudaErrorCheck(__FILE__, __LINE__);
+	cudaMemcpy(V_GPU, V, N * sizeof(float3), cudaMemcpyHostToDevice);
+	cudaErrorCheck(__FILE__, __LINE__);
+	cudaMemcpy(F_GPU, F, N * sizeof(float3), cudaMemcpyHostToDevice);
+	cudaErrorCheck(__FILE__, __LINE__);
+	cudaMemcpy(M_GPU, M, N * sizeof(float), cudaMemcpyHostToDevice);
+	cudaErrorCheck(__FILE__, __LINE__);
 	
 }
 
@@ -313,54 +331,7 @@ void nBody()
 
 	while(time < RUN_TIME)
 	{
-		//get forces
-		// for(int i=0; i<N; i++)
-		// {
-		// 	F[i].x = 0.0;
-		// 	F[i].y = 0.0;
-		// 	F[i].z = 0.0;
-		// }
-		
-		// for(int i=0; i<N; i++)
-		// {
-		// 	for(int j=i+1; j<N; j++)
-		// 	{
-		// 		dx = P[j].x-P[i].x;
-		// 		dy = P[j].y-P[i].y;
-		// 		dz = P[j].z-P[i].z;
-		// 		d2 = dx*dx + dy*dy + dz*dz;
-		// 		d  = sqrt(d2);
-				
-		// 		force_mag  = (G*M[i]*M[j])/(d2) - (H*M[i]*M[j])/(d2*d2);
-		// 		F[i].x += force_mag*dx/d;
-		// 		F[j].x -= force_mag*dx/d;
-		// 		F[i].y += force_mag*dy/d;
-		// 		F[j].y -= force_mag*dy/d;
-		// 		F[i].z += force_mag*dz/d;
-		// 		F[j].z -= force_mag*dz/d;
-		// 	}
-		// }
 
-		//update the positions
-		// for(int i=0; i<N; i++)
-		// {
-		// 	if(time == 0.0)
-		// 	{
-		// 		V[i].x += (F[i].x/M[i])*0.5*dt;
-		// 		V[i].y += (F[i].y/M[i])*0.5*dt;
-		// 		V[i].z += (F[i].z/M[i])*0.5*dt;
-		// 	}
-		// 	else
-		// 	{
-		// 		V[i].x += ((F[i].x-Damp*V[i].x)/M[i])*dt;
-		// 		V[i].y += ((F[i].y-Damp*V[i].y)/M[i])*dt;
-		// 		V[i].z += ((F[i].z-Damp*V[i].z)/M[i])*dt;
-		// 	}
-
-		// 	P[i].x += V[i].x*dt;
-		// 	P[i].y += V[i].y*dt;
-		// 	P[i].z += V[i].z*dt;
-		// }
 
 		getForces<<<GridSize, BlockSize>>>(P_GPU, V_GPU, F_GPU, M_GPU, N);
 		cudaErrorCheck(__FILE__, __LINE__);
@@ -368,19 +339,10 @@ void nBody()
 		updatePositions<<<GridSize, BlockSize>>>(P_GPU, V_GPU, F_GPU, M_GPU, N, dt, Damp, time);
 		cudaErrorCheck(__FILE__, __LINE__);
 
-		//copy the data back to the CPU for drawing (Maybe????)
-
-		//might only need to copy the positions back to the CPU
-		// cudaMemcpy(V, V_GPU, N * sizeof(float3), cudaMemcpyDeviceToHost);
-		// cudaErrorCheck(__FILE__, __LINE__);
-
-		// cudaMemcpy(F, F_GPU, N * sizeof(float3), cudaMemcpyDeviceToHost);
-		// cudaErrorCheck(__FILE__, __LINE__);
-
 		//draw if we need to
 		if(drawCount == DRAW_RATE) 
 		{
-			cudaMemcpy(P, P_GPU, N * sizeof(float3), cudaMemcpyDeviceToHost); //only copy pos to CPU if drawing
+			if(slowCode) cudaMemcpyAsync(P, P_GPU, N * sizeof(float3), cudaMemcpyDeviceToHost); //only copy pos to CPU if drawing
 			cudaErrorCheck(__FILE__, __LINE__);
 			if(DrawFlag) drawPicture();
 			drawCount = 0;
@@ -389,15 +351,19 @@ void nBody()
 		time += dt;
 		drawCount++;
 	}
-	//now that we're done, copy the data back to the CPU
-	cudaMemcpy(P, P_GPU, N * sizeof(float3), cudaMemcpyDeviceToHost);
-	cudaErrorCheck(__FILE__, __LINE__);
+	if(slowCode)
+	{
+		//now that we're done, copy the data back to the CPU
+		cudaMemcpy(P, P_GPU, N * sizeof(float3), cudaMemcpyDeviceToHost);
+		cudaErrorCheck(__FILE__, __LINE__);
 
-	cudaMemcpy(V, V_GPU, N * sizeof(float3), cudaMemcpyDeviceToHost);
-	cudaErrorCheck(__FILE__, __LINE__);
+		cudaMemcpy(V, V_GPU, N * sizeof(float3), cudaMemcpyDeviceToHost);
+		cudaErrorCheck(__FILE__, __LINE__);
 
-	cudaMemcpy(F, F_GPU, N * sizeof(float3), cudaMemcpyDeviceToHost);
-	cudaErrorCheck(__FILE__, __LINE__);
+		cudaMemcpy(F, F_GPU, N * sizeof(float3), cudaMemcpyDeviceToHost);
+		cudaErrorCheck(__FILE__, __LINE__);
+	}
+
 
 }
 
@@ -412,6 +378,8 @@ void cleanUp()
 	cudaFree(V_GPU);
 	cudaFree(F_GPU);
 	cudaFree(M_GPU);
+
+	cudaStreamDestroy(memStream);
 
 	printf("\n Memory has been cleaned up.\n");
 }

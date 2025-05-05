@@ -4,7 +4,7 @@ nsys profile \
   --trace=cuda,nvtx,opengl \
   --stats=true \
   --output=final_report \
-  ./demo 500 1
+  ./slowDemo 512 1
 #--trace tells nsys what to profile
 #cuda-hw shows hardware counters
 #nvtx shows nvtx events
