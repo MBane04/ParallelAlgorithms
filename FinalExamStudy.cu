@@ -273,8 +273,8 @@ int main()
 
         //copy result back to host
         cudaSetDevice(0);
-        cudaMemcpy(c, c_GPUm, N1 * sizeof(float), cudaMemcpyDeviceToHost); //copy first half
-        cudaMemcpy(c + N1, c_GPUm, N2 * sizeof(float), cudaMemcpyDeviceToHost); //copy second half
+        cudaMemPrefetchAsync(c_GPUm, N1 * sizeof(float), 0); //prefetch first half
+        cudaMemPrefetchAsync(c_GPUm + N1, N2 * sizeof(float), 1); //prefetch second half
         cudaDeviceSynchronize(); //wait for copy to finish
 
         for(int i = 0; i < N; i++)
